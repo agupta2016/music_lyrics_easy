@@ -5,8 +5,10 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /srv
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt requirements-models.txt ./
+# CPU-only PyTorch keeps the image much smaller; NLLB and Demucs need it.
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir -r requirements-models.txt
 COPY app ./app
 
 ENV WORK_DIR=/tmp/mle-work
