@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MusicLyricsEasy</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main>
+    <header>
+      <h1>MusicLyricsEasy</h1>
+      <p class="tagline">Paste a link to a song or video, pick a language, and get the lyrics.</p>
+    </header>
+
+    <form id="job-form">
+      <div class="tabs" role="tablist">
+        <button type="button" class="tab active" data-mode="link" role="tab" aria-selected="true">Link</button>
+        <button type="button" class="tab" data-mode="file" role="tab" aria-selected="false">Upload file</button>
+      </div>
+
+      <label id="link-field">
+        <span>Video or music link</span>
+        <input type="url" id="url" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off">
+      </label>
+
+      <label id="file-field" hidden>
+        <span>Audio or video file</span>
+        <input type="file" id="file" accept="audio/*,video/*">
+      </label>
+
+      <label>
+        <span>Lyrics language</span>
+        <select id="language"></select>
+      </label>
+
+      <button type="submit" id="submit">Get lyrics</button>
+    </form>
+
+    <section id="status" hidden>
+      <div class="spinner" aria-hidden="true"></div>
+      <span id="status-text"></span>
+    </section>
+
+    <section id="error" class="error" hidden></section>
+
+    <section id="result" hidden>
+      <div class="result-head">
+        <div>
+          <h2 id="result-title"></h2>
+          <p id="result-meta" class="meta"></p>
+        </div>
+        <div class="actions">
+          <label class="toggle"><input type="checkbox" id="show-original"> Show original</label>
+          <label class="toggle"><input type="checkbox" id="show-times"> Timestamps</label>
+          <button type="button" id="copy">Copy</button>
+        </div>
+      </div>
+      <ol id="lines"></ol>
+    </section>
+
+    <footer>
+      Transcriptions are generated automatically and may contain mistakes.
+      Only process audio you have the right to use.
+    </footer>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
