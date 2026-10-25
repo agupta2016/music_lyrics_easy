@@ -12,7 +12,7 @@ from .config import Settings, get_settings
 from .downloader import DownloadError, download_audio, probe_duration, validate_url
 from .jobs import Job, JobManager
 from .languages import LANGUAGES
-from .transcriber import Transcriber, WhisperTranscriber
+from .transcriber import Transcriber, VocalIsolatingTranscriber, WhisperTranscriber, demucs_available
 from .translator import Translator, make_translator
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -29,9 +29,12 @@ def create_app(
     translator: Optional[Translator] = None,
 ) -> FastAPI:
     settings = settings or get_settings()
+    if transcriber is None:
+        transcriber = WhisperTranscriber(settings.whisper_model, settings.whisper_device)
+        if settings.isolate_vocals and demucs_available():
+            transcriber = VocalIsolatingTranscriber(transcriber)
     manager = JobManager(
-        transcriber=transcriber
-        or WhisperTranscriber(settings.whisper_model, settings.whisper_device),
+        transcriber=transcriber,
         translator=translator or make_translator(settings.translator),
         work_dir=settings.work_dir,
     )

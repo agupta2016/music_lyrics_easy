@@ -1,5 +1,10 @@
 """Speech-to-text with Whisper (via faster-whisper, runs locally)."""
 
+import logging
+import shutil
+import subprocess
+import sys
+import tempfile
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -50,3 +55,50 @@ class WhisperTranscriber:
             if s.text.strip()
         ]
         return Transcript(language=info.language, segments=result)
+
+
+log = logging.getLogger(__name__)
+
+
+def demucs_available() -> bool:
+    try:
+        import demucs  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+class VocalIsolatingTranscriber:
+    """Runs Demucs to strip the music out, then hands the vocals to another transcriber.
+
+    Whisper is much more accurate on a clean vocal track than on a full mix.
+    If Demucs fails, it falls back to transcribing the original audio.
+    """
+
+    def __init__(self, inner: Transcriber, model: str = "htdemucs"):
+        self.inner = inner
+        self.model = model
+
+    def isolate(self, audio_path: Path, out_dir: Path) -> Path:
+        subprocess.run(
+            [sys.executable, "-m", "demucs", "--two-stems=vocals", "-n", self.model,
+             "-o", str(out_dir), str(audio_path)],
+            check=True,
+            capture_output=True,
+        )
+        vocals = out_dir / self.model / audio_path.stem / "vocals.wav"
+        if not vocals.exists():
+            raise RuntimeError(f"Demucs did not produce {vocals}")
+        return vocals
+
+    def transcribe(self, audio_path: Path) -> Transcript:
+        out_dir = Path(tempfile.mkdtemp(prefix="demucs-", dir=audio_path.parent))
+        try:
+            try:
+                vocals = self.isolate(audio_path, out_dir)
+            except Exception as exc:
+                log.warning("Vocal isolation failed, using the full mix: %s", exc)
+                return self.inner.transcribe(audio_path)
+            return self.inner.transcribe(vocals)
+        finally:
+            shutil.rmtree(out_dir, ignore_errors=True)

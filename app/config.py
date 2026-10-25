@@ -18,8 +18,11 @@ class Settings:
     whisper_model: str = field(default_factory=lambda: os.getenv("WHISPER_MODEL", "small"))
     # "cpu" or "cuda". "auto" lets faster-whisper decide.
     whisper_device: str = field(default_factory=lambda: os.getenv("WHISPER_DEVICE", "auto"))
-    # "google" (free web translation, no key), "argos" (fully offline), or "none".
-    translator: str = field(default_factory=lambda: os.getenv("TRANSLATOR", "google"))
+    # "nllb" (open-source, offline), "argos" (offline, lighter), "google" (free web
+    # translation, sends lyrics to Google), or "none".
+    translator: str = field(default_factory=lambda: os.getenv("TRANSLATOR", "nllb"))
+    # Separate the vocals from the music with Demucs before transcribing, when it's installed.
+    isolate_vocals: bool = field(default_factory=lambda: _env_bool("ISOLATE_VOCALS", True))
     # Longest audio we accept, in seconds.
     max_duration_seconds: int = field(
         default_factory=lambda: int(os.getenv("MAX_DURATION_SECONDS", "900"))
