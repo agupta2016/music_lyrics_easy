@@ -36,6 +36,16 @@ Open http://127.0.0.1:8000 and paste a link.
 
 The first job downloads the Whisper model (about 460 MB for `small`), the NLLB model (about 2.5 GB) when it first translates, and the Demucs model (about 80 MB), so it takes longer than later ones. On a CPU, Demucs adds roughly a minute or two per song.
 
+### Use your NVIDIA GPU (recommended)
+
+On a GPU, the app uses Whisper `large-v3`, the most accurate open model for Hindi and English, and a song takes well under a minute. You don't need the full CUDA toolkit. Install NVIDIA's libraries with pip and the app finds them on its own:
+
+```bash
+pip install -r requirements-gpu.txt
+```
+
+Restart the app. The log line `Loading Whisper model large-v3 on auto` confirms it. Without a GPU, the app uses `medium`, which is slower and less accurate on Hindi.
+
 ### With Docker
 
 ```bash
@@ -49,7 +59,7 @@ Set these as environment variables before starting the server.
 
 | Variable | Default | What it does |
 | --- | --- | --- |
-| `WHISPER_MODEL` | `small` | `tiny`, `base`, `small`, `medium`, `large-v3`. Larger is more accurate on music but slower. `medium` or `large-v3` is worth it if you have a GPU. |
+| `WHISPER_MODEL` | `auto` | `auto` uses `large-v3` on an NVIDIA GPU and `medium` on a CPU. You can also set `tiny`, `base`, `small`, `medium`, `large-v3`, `large-v3-turbo`, or a local model folder. `large-v3` is the most accurate for Hindi; `large-v3-turbo` is faster but noticeably weaker on Hindi. |
 | `WHISPER_DEVICE` | `auto` | `cpu`, `cuda`, or `auto`. If the GPU's CUDA libraries are missing, the app falls back to `cpu`. |
 | `TRANSLATOR` | `nllb` | `nllb` is Meta's open-source NLLB-200 model, offline, and good with Indian and other non-European languages (needs `requirements-models.txt`). `argos` is also offline and lighter: run `pip install argostranslate`, and language packs download on first use. `google` uses Google Translate's free web endpoint, which sends lyrics to Google. `none` turns translation off. |
 | `ISOLATE_VOCALS` | `true` | Run Demucs to separate the vocals before transcribing, when Demucs is installed. Set `false` to skip it for speed. |
@@ -97,12 +107,12 @@ tests/
 
 - **"ffmpeg isn't installed"**: run `pip install -r requirements.txt` again to get the bundled copy, or install ffmpeg as shown above.
 - **"Audio is … long; the limit is …"**: the video is longer than `MAX_DURATION_SECONDS`. Raise it, for example `MAX_DURATION_SECONDS=7200 uvicorn app.main:app` (on Windows PowerShell: `$env:MAX_DURATION_SECONDS=7200` first).
-- **"cublas64_12.dll is not found"** (or another CUDA library): Whisper found an NVIDIA GPU but not the CUDA 12 libraries. The app now switches to the CPU on its own. To skip the GPU attempt, set `WHISPER_DEVICE=cpu`. To use the GPU, install CUDA 12 with cuBLAS and cuDNN 9 (see the [faster-whisper GPU notes](https://github.com/SYSTRAN/faster-whisper#gpu)).
+- **"cublas64_12.dll is not found"** (or another CUDA library): Whisper found an NVIDIA GPU but not the CUDA 12 libraries. The app now switches to the CPU on its own. To skip the GPU attempt, set `WHISPER_DEVICE=cpu`. To use the GPU, run `pip install -r requirements-gpu.txt` and restart.
 - **A site refuses the download**: update yt-dlp with `pip install -U yt-dlp`.
 - **Lyrics are inaccurate** (missing or wrong words): in order of impact,
   1. Install ffmpeg system-wide so Demucs can strip the music out before transcription. The server log warns at startup when it can't.
   2. Pick the language being sung instead of "Detect automatically".
-  3. Use a bigger model: `WHISPER_MODEL=large-v3-turbo` is much more accurate on singing than `small` (about 1.6 GB, slower on a CPU).
+  3. Use the GPU so the app runs `large-v3` (see "Use your NVIDIA GPU"), or set `WHISPER_MODEL=large-v3` on a CPU if you can wait (about 3 GB, several minutes per song).
 
 ## Limitations
 

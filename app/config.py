@@ -14,8 +14,9 @@ def _env_bool(name: str, default: bool) -> bool:
 
 @dataclass(frozen=True)
 class Settings:
-    # Whisper model size: tiny, base, small, medium, large-v3. Bigger is slower but more accurate.
-    whisper_model: str = field(default_factory=lambda: os.getenv("WHISPER_MODEL", "small"))
+    # Whisper model: tiny, base, small, medium, large-v3, large-v3-turbo, or a local model folder.
+    # "auto" uses large-v3 on an NVIDIA GPU (best for Hindi and English) and medium on a CPU.
+    whisper_model: str = field(default_factory=lambda: os.getenv("WHISPER_MODEL", "auto"))
     # "cpu" or "cuda". "auto" lets faster-whisper decide.
     whisper_device: str = field(default_factory=lambda: os.getenv("WHISPER_DEVICE", "auto"))
     # "nllb" (open-source, offline), "argos" (offline, lighter), "google" (free web

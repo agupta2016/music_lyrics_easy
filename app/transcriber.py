@@ -35,18 +35,32 @@ class WhisperTranscriber:
     machines with an NVIDIA card but no CUDA toolkit), it switches to the CPU.
     """
 
-    def __init__(self, model_size: str = "small", device: str = "auto"):
+    def __init__(self, model_size: str = "auto", device: str = "auto"):
         self.model_size = model_size
         self.device = device
         self._model = None
         self._lock = threading.Lock()
 
+    def model_for(self, device: str) -> str:
+        """'auto' means large-v3 (best for Hindi and English) on a GPU, medium on a CPU."""
+        if self.model_size != "auto":
+            return self.model_size
+        from .gpu import cuda_available
+
+        on_gpu = device == "cuda" or (device == "auto" and cuda_available())
+        return "large-v3" if on_gpu else "medium"
+
     def _load_model(self, device: str):
         from faster_whisper import WhisperModel
 
+        from .gpu import register_nvidia_libraries
+
+        register_nvidia_libraries()
+        model = self.model_for(device)
+        log.info("Loading Whisper model %s on %s", model, device)
         # int8 is the fast choice on CPU; "auto" picks the best type for the GPU.
         compute_type = "int8" if device == "cpu" else "auto"
-        return WhisperModel(self.model_size, device=device, compute_type=compute_type)
+        return WhisperModel(model, device=device, compute_type=compute_type)
 
     def _get_model(self):
         with self._lock:
