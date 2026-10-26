@@ -1,6 +1,7 @@
 """HTTP API and static web UI."""
 
 import logging
+import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -24,6 +25,7 @@ log = logging.getLogger(__name__)
 class LinkRequest(BaseModel):
     url: str
     target_language: str = "original"
+    source_language: str = "auto"
 
 
 def create_app(
@@ -37,6 +39,11 @@ def create_app(
     if transcriber is None:
         transcriber = WhisperTranscriber(settings.whisper_model, settings.whisper_device)
         if settings.isolate_vocals and demucs_available():
+            if shutil.which("ffmpeg") is None:
+                log.warning(
+                    "Demucs needs ffmpeg installed system-wide to isolate vocals; without it "
+                    "songs are transcribed with the music in, which is less accurate."
+                )
             transcriber = VocalIsolatingTranscriber(transcriber)
     manager = JobManager(
         transcriber=transcriber,
@@ -51,6 +58,13 @@ def create_app(
         if code not in LANGUAGES:
             raise HTTPException(400, f"Unsupported language '{code}'.")
 
+    def sung_language(code: str) -> Optional[str]:
+        if code in ("", "auto"):
+            return None
+        if code not in LANGUAGES or code == "original":
+            raise HTTPException(400, f"Unsupported sung language '{code}'.")
+        return code
+
     @app.get("/api/languages")
     def languages() -> dict[str, str]:
         return LANGUAGES
@@ -58,6 +72,7 @@ def create_app(
     @app.post("/api/jobs", status_code=202)
     def create_job_from_link(req: LinkRequest) -> dict:
         check_language(req.target_language)
+        source_language = sung_language(req.source_language)
         try:
             url = validate_url(req.url, settings.block_private_urls)
         except DownloadError as exc:
@@ -68,13 +83,16 @@ def create_app(
             job.title = title
             return audio
 
-        return manager.submit(url, req.target_language, fetch).to_dict()
+        return manager.submit(url, req.target_language, fetch, source_language).to_dict()
 
     @app.post("/api/jobs/upload", status_code=202)
     async def create_job_from_upload(
-        file: UploadFile = File(...), target_language: str = Form("original")
+        file: UploadFile = File(...),
+        target_language: str = Form("original"),
+        source_language: str = Form("auto"),
     ) -> dict:
         check_language(target_language)
+        sung = sung_language(source_language)
         limit = settings.max_upload_mb * 1024 * 1024
         data = await file.read(limit + 1)
         if len(data) > limit:
@@ -93,7 +111,7 @@ def create_app(
             job.title = name
             return path
 
-        return manager.submit(name, target_language, fetch).to_dict()
+        return manager.submit(name, target_language, fetch, sung).to_dict()
 
     @app.get("/api/jobs/{job_id}")
     def get_job(job_id: str) -> dict:

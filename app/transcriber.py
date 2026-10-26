@@ -8,7 +8,7 @@ import tempfile
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Optional, Protocol
 
 
 @dataclass
@@ -25,7 +25,7 @@ class Transcript:
 
 
 class Transcriber(Protocol):
-    def transcribe(self, audio_path: Path) -> Transcript: ...
+    def transcribe(self, audio_path: Path, language: Optional[str] = None) -> Transcript: ...
 
 
 class WhisperTranscriber:
@@ -68,26 +68,48 @@ class WhisperTranscriber:
         self._model = None
         return True
 
-    def _run(self, audio_path: Path) -> Transcript:
+    def _run(self, audio_path: Path, language: Optional[str]) -> Transcript:
         model = self._get_model()
-        # vad_filter skips long instrumental stretches, which otherwise produce hallucinated text.
-        segments, info = model.transcribe(str(audio_path), vad_filter=True, beam_size=5)
+        segments, info = model.transcribe(
+            str(audio_path),
+            language=language,
+            beam_size=5,
+            # Skips long instrumental stretches, which otherwise produce made-up text.
+            vad_filter=True,
+            # Feeding earlier lines back in makes Whisper repeat choruses and loop on songs.
+            condition_on_previous_text=False,
+        )
         # Segments are generated lazily, so GPU errors surface while iterating.
         result = [
             Segment(start=round(s.start, 2), end=round(s.end, 2), text=s.text.strip())
             for s in segments
             if s.text.strip()
         ]
-        return Transcript(language=info.language, segments=result)
+        return Transcript(language=info.language, segments=remove_overlaps(result))
 
-    def transcribe(self, audio_path: Path) -> Transcript:
+    def transcribe(self, audio_path: Path, language: Optional[str] = None) -> Transcript:
         try:
-            return self._run(audio_path)
+            return self._run(audio_path, language)
         except Exception as exc:
             with self._lock:
                 if not self._switch_to_cpu(exc):
                     raise
-            return self._run(audio_path)
+            return self._run(audio_path, language)
+
+
+def remove_overlaps(segments: list[Segment]) -> list[Segment]:
+    """Drop lines that repeat the previous one at the same moment, and stop times running backwards."""
+    cleaned: list[Segment] = []
+    for seg in segments:
+        if cleaned:
+            prev = cleaned[-1]
+            if seg.text.lower() == prev.text.lower() and seg.start < prev.end:
+                prev.end = max(prev.end, seg.end)
+                continue
+            if seg.start < prev.end:
+                seg = Segment(prev.end, max(seg.end, prev.end), seg.text)
+        cleaned.append(seg)
+    return cleaned
 
 
 _GPU_ERROR_HINTS = ("cublas", "cudnn", "cuda", "libcu", "nvrtc", "gpu")
@@ -132,14 +154,14 @@ class VocalIsolatingTranscriber:
             raise RuntimeError(f"Demucs did not produce {vocals}")
         return vocals
 
-    def transcribe(self, audio_path: Path) -> Transcript:
+    def transcribe(self, audio_path: Path, language: Optional[str] = None) -> Transcript:
         out_dir = Path(tempfile.mkdtemp(prefix="demucs-", dir=audio_path.parent))
         try:
             try:
                 vocals = self.isolate(audio_path, out_dir)
             except Exception as exc:
                 log.warning("Vocal isolation failed, using the full mix: %s", exc)
-                return self.inner.transcribe(audio_path)
-            return self.inner.transcribe(vocals)
+                return self.inner.transcribe(audio_path, language)
+            return self.inner.transcribe(vocals, language)
         finally:
             shutil.rmtree(out_dir, ignore_errors=True)

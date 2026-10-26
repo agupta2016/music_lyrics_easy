@@ -99,7 +99,10 @@ tests/
 - **"Audio is … long; the limit is …"**: the video is longer than `MAX_DURATION_SECONDS`. Raise it, for example `MAX_DURATION_SECONDS=7200 uvicorn app.main:app` (on Windows PowerShell: `$env:MAX_DURATION_SECONDS=7200` first).
 - **"cublas64_12.dll is not found"** (or another CUDA library): Whisper found an NVIDIA GPU but not the CUDA 12 libraries. The app now switches to the CPU on its own. To skip the GPU attempt, set `WHISPER_DEVICE=cpu`. To use the GPU, install CUDA 12 with cuBLAS and cuDNN 9 (see the [faster-whisper GPU notes](https://github.com/SYSTRAN/faster-whisper#gpu)).
 - **A site refuses the download**: update yt-dlp with `pip install -U yt-dlp`.
-- **Lyrics are poor on loud songs**: install ffmpeg system-wide so Demucs can isolate the vocals, or try `WHISPER_MODEL=medium`.
+- **Lyrics are inaccurate** (missing or wrong words): in order of impact,
+  1. Install ffmpeg system-wide so Demucs can strip the music out before transcription. The server log warns at startup when it can't.
+  2. Pick the language being sung instead of "Detect automatically".
+  3. Use a bigger model: `WHISPER_MODEL=large-v3-turbo` is much more accurate on singing than `small` (about 1.6 GB, slower on a CPU).
 
 ## Limitations
 

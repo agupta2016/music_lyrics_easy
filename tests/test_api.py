@@ -125,3 +125,38 @@ def test_rejects_upload_over_duration_limit(tmp_path, fakes):
     assert job["status"] == "error"
     assert "limit" in job["error"]
     assert transcriber.seen == []
+
+
+def test_sung_language_is_passed_to_whisper(client, fakes, monkeypatch):
+    transcriber, _ = fakes
+
+    def fake_download(url, dest_dir, max_duration_seconds):
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        return make_tone_wav(dest_dir / "audio.wav"), "Song"
+
+    monkeypatch.setattr(main_module, "download_audio", fake_download)
+
+    for sung, expected in [("hi", "hi"), ("zh-CN", "zh"), ("auto", None)]:
+        res = client.post(
+            "/api/jobs",
+            json={"url": "https://example.com/v", "target_language": "original", "source_language": sung},
+        )
+        assert wait_for_job(client, res.json()["id"])["status"] == "done"
+        assert transcriber.languages[-1] == expected
+
+
+def test_sung_language_defaults_to_detection_for_uploads(client, fakes, tone_wav):
+    transcriber, _ = fakes
+    with tone_wav.open("rb") as f:
+        res = client.post("/api/jobs/upload", files={"file": ("t.wav", f, "audio/wav")})
+    assert wait_for_job(client, res.json()["id"])["status"] == "done"
+    assert transcriber.languages == [None]
+
+
+def test_rejects_unknown_sung_language(client):
+    for bad in ("xx", "original"):
+        res = client.post(
+            "/api/jobs",
+            json={"url": "https://example.com/a", "target_language": "en", "source_language": bad},
+        )
+        assert res.status_code == 400

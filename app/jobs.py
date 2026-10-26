@@ -27,6 +27,8 @@ class Job:
     id: str
     source: str
     target_language: str
+    # The language being sung, or None to let Whisper detect it.
+    source_language: Optional[str] = None
     status: str = "queued"  # queued, downloading, transcribing, translating, done, error
     title: Optional[str] = None
     detected_language: Optional[str] = None
@@ -57,8 +59,19 @@ class JobManager:
         # One worker by default: Whisper already uses every CPU core.
         self._pool = ThreadPoolExecutor(max_workers=workers)
 
-    def submit(self, source: str, target_language: str, fetch_audio: AudioFetcher) -> Job:
-        job = Job(id=uuid.uuid4().hex, source=source, target_language=target_language)
+    def submit(
+        self,
+        source: str,
+        target_language: str,
+        fetch_audio: AudioFetcher,
+        source_language: Optional[str] = None,
+    ) -> Job:
+        job = Job(
+            id=uuid.uuid4().hex,
+            source=source,
+            target_language=target_language,
+            source_language=source_language,
+        )
         with self._lock:
             self._jobs[job.id] = job
         self._pool.submit(self._run, job, fetch_audio)
@@ -75,7 +88,8 @@ class JobManager:
             audio = fetch_audio(job, job_dir)
 
             job.status = "transcribing"
-            transcript = self.transcriber.transcribe(audio)
+            language = base_code(job.source_language) if job.source_language else None
+            transcript = self.transcriber.transcribe(audio, language)
             job.detected_language = transcript.language
             lines = [Line(s.start, s.end, s.text) for s in transcript.segments]
 

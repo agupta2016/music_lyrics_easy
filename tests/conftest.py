@@ -33,10 +33,12 @@ class FakeTranscriber:
         self.language = language
         self.lines = lines if lines is not None else ["first test line", "second test line"]
         self.seen: list[Path] = []
+        self.languages: list = []
 
-    def transcribe(self, audio_path: Path) -> Transcript:
+    def transcribe(self, audio_path: Path, language=None) -> Transcript:
         assert audio_path.exists(), "audio should exist while transcribing"
         self.seen.append(audio_path)
+        self.languages.append(language)
         return Transcript(
             language=self.language,
             segments=[Segment(float(i), float(i + 1), text) for i, text in enumerate(self.lines)],

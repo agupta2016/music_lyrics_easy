@@ -70,3 +70,20 @@ def test_cpu_errors_are_raised(tmp_path):
 
     with pytest.raises(RuntimeError):
         whisper.transcribe(tmp_path / "song.mp3")
+
+
+def test_whisper_is_told_not_to_reuse_earlier_lines(tmp_path):
+    calls = []
+
+    class Recording(FakeModel):
+        def transcribe(self, path, **kwargs):
+            calls.append(kwargs)
+            return super().transcribe(path, **kwargs)
+
+    whisper = FakeWhisper("cpu")
+    whisper._load_model = lambda device: Recording(device)
+
+    whisper.transcribe(tmp_path / "song.mp3", language="hi")
+
+    assert calls[0]["language"] == "hi"
+    assert calls[0]["condition_on_previous_text"] is False
