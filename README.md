@@ -38,13 +38,13 @@ The first job downloads the Whisper model (about 460 MB for `small`), the NLLB m
 
 ### Use your NVIDIA GPU (recommended)
 
-On a GPU, the app uses Whisper `large-v3`, the most accurate open model for Hindi and English, and a song takes well under a minute. You don't need the full CUDA toolkit. Install NVIDIA's libraries with pip and the app finds them on its own:
+On a GPU, the app uses Whisper `large-v2`, a large model that handles Hindi and English songs well, and a song takes well under a minute. You don't need the full CUDA toolkit. Install NVIDIA's libraries with pip and the app finds them on its own:
 
 ```bash
 pip install -r requirements-gpu.txt
 ```
 
-Restart the app. The log line `Loading Whisper model large-v3 on auto` confirms it. Without a GPU, the app uses `medium`, which is slower and less accurate on Hindi.
+Restart the app. The log line `Loading Whisper model large-v2 on auto` confirms it. Without a GPU, the app uses `medium`, which is slower and less accurate on Hindi.
 
 ### With Docker
 
@@ -59,8 +59,9 @@ Set these as environment variables before starting the server.
 
 | Variable | Default | What it does |
 | --- | --- | --- |
-| `WHISPER_MODEL` | `auto` | `auto` uses `large-v3` on an NVIDIA GPU and `medium` on a CPU. You can also set `tiny`, `base`, `small`, `medium`, `large-v3`, `large-v3-turbo`, or a local model folder. `large-v3` is the most accurate for Hindi; `large-v3-turbo` is faster but noticeably weaker on Hindi. |
+| `WHISPER_MODEL` | `auto` | `auto` uses `large-v2` on an NVIDIA GPU and `medium` on a CPU. You can also set `tiny`, `base`, `small`, `medium`, `large-v2`, `large-v3`, `large-v3-turbo`, or a local model folder. `large-v3` scores better on speech benchmarks but tends to drop or invent lines over music, so try it per song rather than as the default. |
 | `WHISPER_DEVICE` | `auto` | `cpu`, `cuda`, or `auto`. If the GPU's CUDA libraries are missing, the app falls back to `cpu`. |
+| `WHISPER_VAD` | `true` | Skip instrumental stretches with a speech detector, tuned loosely for singing. If lines or whole sections go missing, set `false`. You may then get a few made-up lines during long instrumentals. |
 | `TRANSLATOR` | `nllb` | `nllb` is Meta's open-source NLLB-200 model, offline, and good with Indian and other non-European languages (needs `requirements-models.txt`). `argos` is also offline and lighter: run `pip install argostranslate`, and language packs download on first use. `google` uses Google Translate's free web endpoint, which sends lyrics to Google. `none` turns translation off. |
 | `ISOLATE_VOCALS` | `true` | Run Demucs to separate the vocals before transcribing, when Demucs is installed. Set `false` to skip it for speed. |
 | `MAX_DURATION_SECONDS` | `3600` | Longest audio accepted (1 hour). Whisper handles long audio fine; this only keeps one very long video from tying up the machine. |
@@ -112,7 +113,8 @@ tests/
 - **Lyrics are inaccurate** (missing or wrong words): in order of impact,
   1. Install ffmpeg system-wide so Demucs can strip the music out before transcription. The server log warns at startup when it can't.
   2. Pick the language being sung instead of "Detect automatically".
-  3. Use the GPU so the app runs `large-v3` (see "Use your NVIDIA GPU"), or set `WHISPER_MODEL=large-v3` on a CPU if you can wait (about 3 GB, several minutes per song).
+  3. Use the GPU so the app runs `large-v2` (see "Use your NVIDIA GPU"), or set `WHISPER_MODEL=large-v2` on a CPU if you can wait (about 3 GB, several minutes per song).
+- **Lyrics stop early or skip sections**: set `WHISPER_VAD=false` and try again. If that fixes it, the speech detector was mistaking singing for music.
 
 ## Limitations
 

@@ -37,7 +37,9 @@ def create_app(
     if ffmpeg_path() is None:
         log.warning("Links won't work until ffmpeg is available. %s", INSTALL_HINT)
     if transcriber is None:
-        transcriber = WhisperTranscriber(settings.whisper_model, settings.whisper_device)
+        transcriber = WhisperTranscriber(
+            settings.whisper_model, settings.whisper_device, vad=settings.whisper_vad
+        )
         if settings.isolate_vocals and demucs_available():
             if shutil.which("ffmpeg") is None:
                 log.warning(

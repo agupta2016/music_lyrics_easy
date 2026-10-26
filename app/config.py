@@ -15,10 +15,12 @@ def _env_bool(name: str, default: bool) -> bool:
 @dataclass(frozen=True)
 class Settings:
     # Whisper model: tiny, base, small, medium, large-v3, large-v3-turbo, or a local model folder.
-    # "auto" uses large-v3 on an NVIDIA GPU (best for Hindi and English) and medium on a CPU.
+    # "auto" uses large-v2 on an NVIDIA GPU and medium on a CPU.
     whisper_model: str = field(default_factory=lambda: os.getenv("WHISPER_MODEL", "auto"))
     # "cpu" or "cuda". "auto" lets faster-whisper decide.
     whisper_device: str = field(default_factory=lambda: os.getenv("WHISPER_DEVICE", "auto"))
+    # Skip instrumental stretches with a speech detector. Turn off if lyrics go missing.
+    whisper_vad: bool = field(default_factory=lambda: _env_bool("WHISPER_VAD", True))
     # "nllb" (open-source, offline), "argos" (offline, lighter), "google" (free web
     # translation, sends lyrics to Google), or "none".
     translator: str = field(default_factory=lambda: os.getenv("TRANSLATOR", "nllb"))

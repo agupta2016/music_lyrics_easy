@@ -87,3 +87,11 @@ def test_whisper_is_told_not_to_reuse_earlier_lines(tmp_path):
 
     assert calls[0]["language"] == "hi"
     assert calls[0]["condition_on_previous_text"] is False
+    assert calls[0]["vad_filter"] is True
+    assert calls[0]["vad_parameters"]["threshold"] < 0.5
+    assert calls[0]["no_speech_threshold"] > 0.6
+
+    calls.clear()
+    whisper.vad = False
+    whisper.transcribe(tmp_path / "song.mp3")
+    assert calls[0]["vad_filter"] is False and calls[0]["vad_parameters"] is None

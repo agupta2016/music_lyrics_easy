@@ -28,6 +28,11 @@ class Transcriber(Protocol):
     def transcribe(self, audio_path: Path, language: Optional[str] = None) -> Transcript: ...
 
 
+# Silero VAD settings for singing: lower confidence bar, longer padding around
+# detected vocals, and only treat 3 s+ gaps as breaks between lines.
+SONG_VAD = {"threshold": 0.25, "min_silence_duration_ms": 3000, "speech_pad_ms": 800}
+
+
 class WhisperTranscriber:
     """Loads the Whisper model once, on first use, and reuses it across jobs.
 
@@ -35,20 +40,25 @@ class WhisperTranscriber:
     machines with an NVIDIA card but no CUDA toolkit), it switches to the CPU.
     """
 
-    def __init__(self, model_size: str = "auto", device: str = "auto"):
+    def __init__(self, model_size: str = "auto", device: str = "auto", vad: bool = True):
         self.model_size = model_size
         self.device = device
+        self.vad = vad
         self._model = None
         self._lock = threading.Lock()
 
     def model_for(self, device: str) -> str:
-        """'auto' means large-v3 (best for Hindi and English) on a GPU, medium on a CPU."""
+        """'auto' means large-v2 on a GPU and medium on a CPU.
+
+        large-v2 rather than v3: v3 is more prone to dropping or hallucinating
+        lines over music, which matters more for songs than its gains on speech.
+        """
         if self.model_size != "auto":
             return self.model_size
         from .gpu import cuda_available
 
         on_gpu = device == "cuda" or (device == "auto" and cuda_available())
-        return "large-v3" if on_gpu else "medium"
+        return "large-v2" if on_gpu else "medium"
 
     def _load_model(self, device: str):
         from faster_whisper import WhisperModel
@@ -89,7 +99,12 @@ class WhisperTranscriber:
             language=language,
             beam_size=5,
             # Skips long instrumental stretches, which otherwise produce made-up text.
-            vad_filter=True,
+            # The speech detector is tuned for talking, so loosen it or it drops sung lines.
+            vad_filter=self.vad,
+            vad_parameters=SONG_VAD if self.vad else None,
+            # Whisper rates sung lines over music as "probably not speech"; only skip
+            # a window when it is very sure.
+            no_speech_threshold=0.85,
             # Feeding earlier lines back in makes Whisper repeat choruses and loop on songs.
             condition_on_previous_text=False,
         )

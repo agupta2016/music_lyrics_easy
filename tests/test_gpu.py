@@ -35,14 +35,14 @@ def test_does_nothing_off_windows(monkeypatch):
     assert gpu.register_nvidia_libraries() == []
 
 
-def test_auto_model_is_large_on_gpu_and_medium_on_cpu(monkeypatch):
+def test_auto_model_is_large_v2_on_gpu_and_medium_on_cpu(monkeypatch):
     whisper = WhisperTranscriber("auto", "auto")
     monkeypatch.setattr(gpu, "cuda_available", lambda: True)
-    assert whisper.model_for("auto") == "large-v3"
+    assert whisper.model_for("auto") == "large-v2"
     assert whisper.model_for("cpu") == "medium"
     monkeypatch.setattr(gpu, "cuda_available", lambda: False)
     assert whisper.model_for("auto") == "medium"
-    assert whisper.model_for("cuda") == "large-v3"
+    assert whisper.model_for("cuda") == "large-v2"
 
 
 def test_explicit_model_is_kept(monkeypatch):
