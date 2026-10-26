@@ -29,7 +29,11 @@ class Transcriber(Protocol):
 
 
 class WhisperTranscriber:
-    """Loads the Whisper model once, on first use, and reuses it across jobs."""
+    """Loads the Whisper model once, on first use, and reuses it across jobs.
+
+    If the GPU is picked but its CUDA libraries are missing (common on Windows
+    machines with an NVIDIA card but no CUDA toolkit), it switches to the CPU.
+    """
 
     def __init__(self, model_size: str = "small", device: str = "auto"):
         self.model_size = model_size
@@ -37,24 +41,61 @@ class WhisperTranscriber:
         self._model = None
         self._lock = threading.Lock()
 
+    def _load_model(self, device: str):
+        from faster_whisper import WhisperModel
+
+        # int8 is the fast choice on CPU; "auto" picks the best type for the GPU.
+        compute_type = "int8" if device == "cpu" else "auto"
+        return WhisperModel(self.model_size, device=device, compute_type=compute_type)
+
     def _get_model(self):
         with self._lock:
             if self._model is None:
-                from faster_whisper import WhisperModel
-
-                self._model = WhisperModel(self.model_size, device=self.device, compute_type="auto")
+                try:
+                    self._model = self._load_model(self.device)
+                except Exception as exc:
+                    if not self._switch_to_cpu(exc):
+                        raise
+                    self._model = self._load_model("cpu")
             return self._model
 
-    def transcribe(self, audio_path: Path) -> Transcript:
+    def _switch_to_cpu(self, exc: Exception) -> bool:
+        """Fall back to the CPU for good if ``exc`` is a GPU library problem."""
+        if self.device == "cpu" or not _is_gpu_error(exc):
+            return False
+        log.warning("GPU unavailable (%s); running Whisper on the CPU instead.", exc)
+        self.device = "cpu"
+        self._model = None
+        return True
+
+    def _run(self, audio_path: Path) -> Transcript:
         model = self._get_model()
         # vad_filter skips long instrumental stretches, which otherwise produce hallucinated text.
         segments, info = model.transcribe(str(audio_path), vad_filter=True, beam_size=5)
+        # Segments are generated lazily, so GPU errors surface while iterating.
         result = [
             Segment(start=round(s.start, 2), end=round(s.end, 2), text=s.text.strip())
             for s in segments
             if s.text.strip()
         ]
         return Transcript(language=info.language, segments=result)
+
+    def transcribe(self, audio_path: Path) -> Transcript:
+        try:
+            return self._run(audio_path)
+        except Exception as exc:
+            with self._lock:
+                if not self._switch_to_cpu(exc):
+                    raise
+            return self._run(audio_path)
+
+
+_GPU_ERROR_HINTS = ("cublas", "cudnn", "cuda", "libcu", "nvrtc", "gpu")
+
+
+def _is_gpu_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return any(hint in text for hint in _GPU_ERROR_HINTS)
 
 
 log = logging.getLogger(__name__)

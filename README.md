@@ -50,7 +50,7 @@ Set these as environment variables before starting the server.
 | Variable | Default | What it does |
 | --- | --- | --- |
 | `WHISPER_MODEL` | `small` | `tiny`, `base`, `small`, `medium`, `large-v3`. Larger is more accurate on music but slower. `medium` or `large-v3` is worth it if you have a GPU. |
-| `WHISPER_DEVICE` | `auto` | `cpu`, `cuda`, or `auto`. |
+| `WHISPER_DEVICE` | `auto` | `cpu`, `cuda`, or `auto`. If the GPU's CUDA libraries are missing, the app falls back to `cpu`. |
 | `TRANSLATOR` | `nllb` | `nllb` is Meta's open-source NLLB-200 model, offline, and good with Indian and other non-European languages (needs `requirements-models.txt`). `argos` is also offline and lighter: run `pip install argostranslate`, and language packs download on first use. `google` uses Google Translate's free web endpoint, which sends lyrics to Google. `none` turns translation off. |
 | `ISOLATE_VOCALS` | `true` | Run Demucs to separate the vocals before transcribing, when Demucs is installed. Set `false` to skip it for speed. |
 | `MAX_DURATION_SECONDS` | `3600` | Longest audio accepted (1 hour). Whisper handles long audio fine; this only keeps one very long video from tying up the machine. |
@@ -97,6 +97,7 @@ tests/
 
 - **"ffmpeg isn't installed"**: run `pip install -r requirements.txt` again to get the bundled copy, or install ffmpeg as shown above.
 - **"Audio is … long; the limit is …"**: the video is longer than `MAX_DURATION_SECONDS`. Raise it, for example `MAX_DURATION_SECONDS=7200 uvicorn app.main:app` (on Windows PowerShell: `$env:MAX_DURATION_SECONDS=7200` first).
+- **"cublas64_12.dll is not found"** (or another CUDA library): Whisper found an NVIDIA GPU but not the CUDA 12 libraries. The app now switches to the CPU on its own. To skip the GPU attempt, set `WHISPER_DEVICE=cpu`. To use the GPU, install CUDA 12 with cuBLAS and cuDNN 9 (see the [faster-whisper GPU notes](https://github.com/SYSTRAN/faster-whisper#gpu)).
 - **A site refuses the download**: update yt-dlp with `pip install -U yt-dlp`.
 - **Lyrics are poor on loud songs**: install ffmpeg system-wide so Demucs can isolate the vocals, or try `WHISPER_MODEL=medium`.
 
