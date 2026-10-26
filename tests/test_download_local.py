@@ -7,15 +7,33 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
+from app import ffmpeg
 from app.downloader import DownloadError, download_audio
 from tests.conftest import make_tone_wav
 
-pytestmark = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
 
 
 class QuietHandler(SimpleHTTPRequestHandler):
     def log_message(self, *args):
         pass
+
+
+@pytest.fixture(params=["system", "bundled"])
+def ffmpeg_source(request, monkeypatch):
+    """Run each test with the system ffmpeg and with the bundled imageio-ffmpeg copy."""
+    ffmpeg.ffmpeg_path.cache_clear()
+    if request.param == "system":
+        if shutil.which("ffmpeg") is None:
+            pytest.skip("ffmpeg not installed")
+    else:
+        real_which = shutil.which
+        monkeypatch.setattr(
+            shutil, "which", lambda name, *a, **k: None if name in {"ffmpeg", "ffprobe"} else real_which(name, *a, **k)
+        )
+        # yt-dlp looks ffmpeg up on PATH too, so hide the system one from it.
+        monkeypatch.setenv("PATH", "/nonexistent")
+    yield request.param
+    ffmpeg.ffmpeg_path.cache_clear()
 
 
 @pytest.fixture
@@ -30,7 +48,7 @@ def served_dir(tmp_path):
     server.shutdown()
 
 
-def test_downloads_and_converts_direct_audio_link(served_dir, tmp_path):
+def test_downloads_and_converts_direct_audio_link(ffmpeg_source, served_dir, tmp_path):
     root, base = served_dir
     make_tone_wav(root / "tone.wav", seconds=2)
     audio, title = download_audio(f"{base}/tone.wav", tmp_path / "out", max_duration_seconds=60)
@@ -39,8 +57,8 @@ def test_downloads_and_converts_direct_audio_link(served_dir, tmp_path):
     assert title
 
 
-def test_rejects_audio_over_duration_limit(served_dir, tmp_path):
+def test_rejects_audio_over_duration_limit(ffmpeg_source, served_dir, tmp_path):
     root, base = served_dir
     make_tone_wav(root / "long.wav", seconds=3)
-    with pytest.raises(DownloadError):
+    with pytest.raises(DownloadError, match="limit"):
         download_audio(f"{base}/long.wav", tmp_path / "out", max_duration_seconds=1)

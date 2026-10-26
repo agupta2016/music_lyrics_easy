@@ -1,5 +1,6 @@
 """HTTP API and static web UI."""
 
+import logging
 from pathlib import Path
 from typing import Optional
 
@@ -9,13 +10,15 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .config import Settings, get_settings
-from .downloader import DownloadError, download_audio, probe_duration, validate_url
+from .downloader import DownloadError, download_audio, too_long_message, validate_url
+from .ffmpeg import INSTALL_HINT, ffmpeg_path, probe_duration
 from .jobs import Job, JobManager
 from .languages import LANGUAGES
 from .transcriber import Transcriber, VocalIsolatingTranscriber, WhisperTranscriber, demucs_available
 from .translator import Translator, make_translator
 
 STATIC_DIR = Path(__file__).parent / "static"
+log = logging.getLogger(__name__)
 
 
 class LinkRequest(BaseModel):
@@ -29,6 +32,8 @@ def create_app(
     translator: Optional[Translator] = None,
 ) -> FastAPI:
     settings = settings or get_settings()
+    if ffmpeg_path() is None:
+        log.warning("Links won't work until ffmpeg is available. %s", INSTALL_HINT)
     if transcriber is None:
         transcriber = WhisperTranscriber(settings.whisper_model, settings.whisper_device)
         if settings.isolate_vocals and demucs_available():
@@ -84,9 +89,7 @@ def create_app(
             path.write_bytes(data)
             duration = probe_duration(path)
             if duration is not None and duration > settings.max_duration_seconds:
-                raise DownloadError(
-                    f"Audio is {int(duration)}s long; the limit is {settings.max_duration_seconds}s."
-                )
+                raise DownloadError(too_long_message(duration, settings.max_duration_seconds))
             job.title = name
             return path
 

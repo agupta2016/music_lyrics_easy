@@ -23,9 +23,10 @@ class Settings:
     translator: str = field(default_factory=lambda: os.getenv("TRANSLATOR", "nllb"))
     # Separate the vocals from the music with Demucs before transcribing, when it's installed.
     isolate_vocals: bool = field(default_factory=lambda: _env_bool("ISOLATE_VOCALS", True))
-    # Longest audio we accept, in seconds.
+    # Longest audio we accept, in seconds. Whisper handles long audio fine; this only
+    # stops one very long video from tying up the machine.
     max_duration_seconds: int = field(
-        default_factory=lambda: int(os.getenv("MAX_DURATION_SECONDS", "900"))
+        default_factory=lambda: int(os.getenv("MAX_DURATION_SECONDS", "3600"))
     )
     # Largest upload we accept, in megabytes.
     max_upload_mb: int = field(default_factory=lambda: int(os.getenv("MAX_UPLOAD_MB", "50")))
