@@ -15,12 +15,12 @@ The result shows each line, with optional timestamps and the original text under
 
 ## Run it locally
 
-You need Python 3.10+ and ffmpeg.
+You need Python 3.10+. The app uses a bundled copy of ffmpeg (from `imageio-ffmpeg`) when ffmpeg isn't installed, so links work without extra setup. Installing ffmpeg system-wide is still recommended, because Demucs vocal isolation needs it on the PATH:
 
 ```bash
 # macOS:   brew install ffmpeg
 # Ubuntu:  sudo apt install ffmpeg
-# Windows: winget install ffmpeg
+# Windows: winget install ffmpeg     (then open a new terminal so PATH updates)
 
 git clone https://github.com/agupta2016/music_lyrics_easy.git
 cd music_lyrics_easy
@@ -53,7 +53,7 @@ Set these as environment variables before starting the server.
 | `WHISPER_DEVICE` | `auto` | `cpu`, `cuda`, or `auto`. |
 | `TRANSLATOR` | `nllb` | `nllb` is Meta's open-source NLLB-200 model, offline, and good with Indian and other non-European languages (needs `requirements-models.txt`). `argos` is also offline and lighter: run `pip install argostranslate`, and language packs download on first use. `google` uses Google Translate's free web endpoint, which sends lyrics to Google. `none` turns translation off. |
 | `ISOLATE_VOCALS` | `true` | Run Demucs to separate the vocals before transcribing, when Demucs is installed. Set `false` to skip it for speed. |
-| `MAX_DURATION_SECONDS` | `900` | Longest audio accepted (15 minutes). |
+| `MAX_DURATION_SECONDS` | `3600` | Longest audio accepted (1 hour). Whisper handles long audio fine; this only keeps one very long video from tying up the machine. |
 | `MAX_UPLOAD_MB` | `50` | Largest upload accepted. |
 | `BLOCK_PRIVATE_URLS` | `true` | Refuses links to localhost or private network addresses. |
 | `WORK_DIR` | `data/work` | Where audio is kept while a job runs. It is deleted when the job finishes. |
@@ -92,6 +92,13 @@ app/
   static/         Web UI (plain HTML, CSS, JS)
 tests/
 ```
+
+## Troubleshooting
+
+- **"ffmpeg isn't installed"**: run `pip install -r requirements.txt` again to get the bundled copy, or install ffmpeg as shown above.
+- **"Audio is … long; the limit is …"**: the video is longer than `MAX_DURATION_SECONDS`. Raise it, for example `MAX_DURATION_SECONDS=7200 uvicorn app.main:app` (on Windows PowerShell: `$env:MAX_DURATION_SECONDS=7200` first).
+- **A site refuses the download**: update yt-dlp with `pip install -U yt-dlp`.
+- **Lyrics are poor on loud songs**: install ffmpeg system-wide so Demucs can isolate the vocals, or try `WHISPER_MODEL=medium`.
 
 ## Limitations
 

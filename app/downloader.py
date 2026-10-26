@@ -1,11 +1,14 @@
 """Fetch the audio track from a link (YouTube or any site yt-dlp supports)."""
 
 import ipaddress
-import json
+import re
 import socket
-import subprocess
 from pathlib import Path
 from urllib.parse import urlparse
+
+from .ffmpeg import FFmpegMissing, probe_duration, require_ffmpeg
+
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
 class DownloadError(Exception):
@@ -38,12 +41,19 @@ def download_audio(url: str, dest_dir: Path, max_duration_seconds: int) -> tuple
     """
     import yt_dlp  # imported lazily so the API can start without it in tests
 
+    try:
+        ffmpeg = require_ffmpeg()
+    except FFmpegMissing as exc:
+        raise DownloadError(str(exc)) from exc
     dest_dir.mkdir(parents=True, exist_ok=True)
+    rejected: list[str] = []
 
     def too_long(info, *, incomplete):
         duration = info.get("duration")
         if duration and duration > max_duration_seconds:
-            return f"Audio is {int(duration)}s long; the limit is {max_duration_seconds}s."
+            reason = too_long_message(duration, max_duration_seconds)
+            rejected.append(reason)
+            return reason
         return None
 
     options = {
@@ -52,6 +62,9 @@ def download_audio(url: str, dest_dir: Path, max_duration_seconds: int) -> tuple
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
+        "noprogress": True,
+        "color": {"stdout": "no_color", "stderr": "no_color"},
+        "ffmpeg_location": ffmpeg,
         "match_filter": too_long,
         "postprocessors": [
             {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "128"}
@@ -61,36 +74,30 @@ def download_audio(url: str, dest_dir: Path, max_duration_seconds: int) -> tuple
         with yt_dlp.YoutubeDL(options) as ydl:
             info = ydl.extract_info(url, download=True)
     except yt_dlp.utils.DownloadError as exc:
-        raise DownloadError(str(exc).replace("ERROR: ", "")) from exc
+        raise DownloadError(_ANSI.sub("", str(exc)).replace("ERROR: ", "").strip()) from exc
 
+    if rejected:
+        # match_filter rejections finish without an error or a file.
+        raise DownloadError(rejected[0])
     if info is None:
         raise DownloadError("Nothing could be downloaded from that link.")
 
     audio = dest_dir / "audio.mp3"
     if not audio.exists():
-        # match_filter rejections finish without a file.
-        raise DownloadError(
-            f"The audio was skipped. It may be longer than {max_duration_seconds}s."
-        )
+        raise DownloadError("The download finished but no audio file was produced.")
     # Direct file links often report no duration up front, so check the real file too.
     duration = probe_duration(audio)
     if duration is not None and duration > max_duration_seconds:
-        raise DownloadError(
-            f"Audio is {int(duration)}s long; the limit is {max_duration_seconds}s."
-        )
+        raise DownloadError(too_long_message(duration, max_duration_seconds))
     return audio, info.get("title") or "Untitled"
 
 
-def probe_duration(path: Path) -> float | None:
-    """Duration in seconds according to ffprobe, or None if it can't tell."""
-    try:
-        out = subprocess.run(
-            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", str(path)],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=True,
-        ).stdout
-        return float(json.loads(out)["format"]["duration"])
-    except (OSError, subprocess.SubprocessError, KeyError, ValueError):
-        return None
+def too_long_message(duration: float, limit: int) -> str:
+    return (
+        f"Audio is {_minutes(duration)} long; the limit is {_minutes(limit)}. "
+        "Raise MAX_DURATION_SECONDS to allow longer audio."
+    )
+
+
+def _minutes(seconds: float) -> str:
+    return f"{int(seconds)} s" if seconds < 120 else f"{int(seconds) // 60} min"

@@ -2,5 +2,7 @@ fastapi>=0.110
 uvicorn[standard]>=0.29
 python-multipart>=0.0.9
 yt-dlp>=2024.8.6
+# A bundled ffmpeg, used when ffmpeg isn't installed on the system.
+imageio-ffmpeg>=0.5
 faster-whisper>=1.0.3
 deep-translator>=1.11.4
