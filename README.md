@@ -1,6 +1,6 @@
 # MusicLyricsEasy
 
-Paste a link to a song or video (YouTube or any of the [sites yt-dlp supports](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md)), pick a language, and get the lyrics. You can also upload an audio or video file directly.
+Paste a link to a song or video (YouTube or any of the [sites yt-dlp supports](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md)), pick a language, and get the lyrics. You can also upload an audio or video file directly, or use the **Download video** tab to save the video itself from a link instead of getting lyrics.
 
 How it works:
 
@@ -82,6 +82,7 @@ Set these as environment variables before starting the server.
 | `MAX_DURATION_SECONDS` | `3600` | Longest audio accepted (1 hour). Whisper handles long audio fine; this only keeps one very long video from tying up the machine. |
 | `MAX_UPLOAD_MB` | `50` | Largest upload accepted. |
 | `BLOCK_PRIVATE_URLS` | `true` | Refuses links to localhost or private network addresses. |
+| `VIDEO_KEEP_MINUTES` | `60` | How long a downloaded video stays on the server for you to save before it's deleted. |
 | `WORK_DIR` | `data/work` | Where audio is kept while a job runs. It is deleted when the job finishes. |
 
 ## API
@@ -93,7 +94,13 @@ Set these as environment variables before starting the server.
 | `POST` | `/api/jobs/upload` | Form fields `file`, `target_language` | A job with status `queued` |
 | `GET` | `/api/jobs/{id}` |  | The job: `status` (`queued`, `downloading`, `transcribing`, `translating`, `done`, `error`), `title`, `detected_language`, `lines[]` with `start`, `end`, `text`, `translation`, and `error` |
 
+| `POST` | `/api/videos` | JSON `{"url": "...", "quality": "720"}` (`best`, `1080`, `720`, `480`, `360`) | A video download with status `queued` |
+| `GET` | `/api/videos/{id}` |  | The download: `status` (`queued`, `downloading`, `done`, `error`), `title`, `progress` (0-100), `size_bytes`, `filename`, `error` |
+| `GET` | `/api/videos/{id}/file` |  | The video file, as an attachment |
+
 Use `"original"` as `target_language` to skip translation.
+
+Videos are saved as mp4 (H.264 with AAC sound when the site offers it, so they play on Windows without extra codecs). `MAX_DURATION_SECONDS` applies to videos too.
 
 ## Tests
 
@@ -111,6 +118,7 @@ app/
   main.py         HTTP API and static UI
   jobs.py         Background job queue: download, transcribe, translate
   downloader.py   yt-dlp download, URL checks, duration limit
+  videos.py       Video download queue: keeps finished videos until they expire
   transcriber.py  Whisper transcription, Demucs vocal isolation
   translator.py   NLLB / Argos / Google / no-op translation
   languages.py    Languages in the picker

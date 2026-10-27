@@ -11,7 +11,14 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .config import Settings, get_settings
-from .downloader import DownloadError, download_audio, too_long_message, validate_url
+from .downloader import (
+    VIDEO_QUALITIES,
+    DownloadError,
+    download_audio,
+    download_video,
+    too_long_message,
+    validate_url,
+)
 from .ffmpeg import INSTALL_HINT, ffmpeg_path, probe_duration
 from .jobs import Job, JobManager
 from .languages import LANGUAGES
@@ -24,6 +31,7 @@ from .transcriber import (
     parse_language_models,
 )
 from .translator import Translator, make_translator
+from .videos import VideoDownload, VideoDownloadManager
 
 STATIC_DIR = Path(__file__).parent / "static"
 log = logging.getLogger(__name__)
@@ -33,6 +41,11 @@ class LinkRequest(BaseModel):
     url: str
     target_language: str = "original"
     source_language: str = "auto"
+
+
+class VideoRequest(BaseModel):
+    url: str
+    quality: str = "best"
 
 
 def create_app(
@@ -69,8 +82,13 @@ def create_app(
         work_dir=settings.work_dir,
     )
 
+    videos = VideoDownloadManager(
+        work_dir=settings.work_dir / "videos", keep_seconds=settings.video_keep_minutes * 60
+    )
+
     app = FastAPI(title="MusicLyricsEasy")
     app.state.jobs = manager
+    app.state.videos = videos
 
     def check_language(code: str) -> None:
         if code not in LANGUAGES:
@@ -137,6 +155,39 @@ def create_app(
         if job is None:
             raise HTTPException(404, "Job not found.")
         return job.to_dict()
+
+    @app.post("/api/videos", status_code=202)
+    def create_video_download(req: VideoRequest) -> dict:
+        if req.quality not in VIDEO_QUALITIES:
+            raise HTTPException(400, f"Unsupported video quality '{req.quality}'.")
+        try:
+            url = validate_url(req.url, settings.block_private_urls)
+        except DownloadError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+        def fetch(item: VideoDownload, item_dir: Path) -> tuple[Path, str]:
+            def on_progress(percent: Optional[float]) -> None:
+                item.progress = percent
+
+            return download_video(
+                url, item_dir, settings.max_duration_seconds, req.quality, on_progress
+            )
+
+        return videos.submit(url, req.quality, fetch).to_dict()
+
+    @app.get("/api/videos/{download_id}")
+    def get_video_download(download_id: str) -> dict:
+        item = videos.get(download_id)
+        if item is None:
+            raise HTTPException(404, "Download not found.")
+        return item.to_dict()
+
+    @app.get("/api/videos/{download_id}/file")
+    def get_video_file(download_id: str) -> FileResponse:
+        item = videos.get(download_id)
+        if item is None or item.status != "done" or item.path is None or not item.path.exists():
+            raise HTTPException(404, "That video isn't available. It may have expired; download it again.")
+        return FileResponse(item.path, filename=item.filename(), media_type="application/octet-stream")
 
     @app.get("/")
     def index() -> FileResponse:
