@@ -19,6 +19,10 @@ class Settings:
     whisper_model: str = field(default_factory=lambda: os.getenv("WHISPER_MODEL", "auto"))
     # "cpu" or "cuda". "auto" lets faster-whisper decide.
     whisper_device: str = field(default_factory=lambda: os.getenv("WHISPER_DEVICE", "auto"))
+    # Extra models for specific sung languages, e.g. "hi=models/whisper-hindi-large-v2".
+    whisper_language_models: str = field(
+        default_factory=lambda: os.getenv("WHISPER_LANGUAGE_MODELS", "")
+    )
     # Skip instrumental stretches with a speech detector. Turn off if lyrics go missing.
     whisper_vad: bool = field(default_factory=lambda: _env_bool("WHISPER_VAD", True))
     # "nllb" (open-source, offline), "argos" (offline, lighter), "google" (free web

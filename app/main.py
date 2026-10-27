@@ -15,7 +15,14 @@ from .downloader import DownloadError, download_audio, too_long_message, validat
 from .ffmpeg import INSTALL_HINT, ffmpeg_path, probe_duration
 from .jobs import Job, JobManager
 from .languages import LANGUAGES
-from .transcriber import Transcriber, VocalIsolatingTranscriber, WhisperTranscriber, demucs_available
+from .transcriber import (
+    LanguageRoutingTranscriber,
+    Transcriber,
+    VocalIsolatingTranscriber,
+    WhisperTranscriber,
+    demucs_available,
+    parse_language_models,
+)
 from .translator import Translator, make_translator
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -40,6 +47,15 @@ def create_app(
         transcriber = WhisperTranscriber(
             settings.whisper_model, settings.whisper_device, vad=settings.whisper_vad
         )
+        language_models = parse_language_models(settings.whisper_language_models)
+        if language_models:
+            transcriber = LanguageRoutingTranscriber(
+                transcriber,
+                {
+                    lang: WhisperTranscriber(model, settings.whisper_device, vad=settings.whisper_vad)
+                    for lang, model in language_models.items()
+                },
+            )
         if settings.isolate_vocals and demucs_available():
             if shutil.which("ffmpeg") is None:
                 log.warning(

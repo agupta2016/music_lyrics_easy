@@ -46,6 +46,20 @@ pip install -r requirements-gpu.txt
 
 Restart the app. The log line `Loading Whisper model large-v2 on auto` confirms it. Without a GPU, the app uses `medium`, which is slower and less accurate on Hindi.
 
+### Better Hindi with a Hindi-tuned model (optional)
+
+The standard Whisper models learn Hindi from relatively little data. Models fine-tuned on Hindi speech, such as [`vasista22/whisper-hindi-large-v2`](https://huggingface.co/vasista22/whisper-hindi-large-v2) from IIT Madras, usually get more Hindi words right. They were trained on speech rather than songs, so compare a few songs before relying on one. The app uses the Hindi model only when "Language being sung" is set to Hindi, and keeps the normal model for English and everything else.
+
+Convert the model once (about 3 GB download, with `requirements-models.txt` installed), then point the app at it:
+
+```powershell
+ct2-transformers-converter --model vasista22/whisper-hindi-large-v2 --output_dir models\whisper-hindi-large-v2 --quantization float16
+$env:WHISPER_LANGUAGE_MODELS="hi=models\whisper-hindi-large-v2"
+uvicorn app.main:app
+```
+
+On a CPU, use `--quantization int8`. With an 8 GB GPU, both large models may not fit at once; if you see an out-of-memory error, set `WHISPER_MODEL=medium` for the default model.
+
 ### With Docker
 
 ```bash
@@ -61,6 +75,7 @@ Set these as environment variables before starting the server.
 | --- | --- | --- |
 | `WHISPER_MODEL` | `auto` | `auto` uses `large-v2` on an NVIDIA GPU and `medium` on a CPU. You can also set `tiny`, `base`, `small`, `medium`, `large-v2`, `large-v3`, `large-v3-turbo`, or a local model folder. `large-v3` scores better on speech benchmarks but tends to drop or invent lines over music, so try it per song rather than as the default. |
 | `WHISPER_DEVICE` | `auto` | `cpu`, `cuda`, or `auto`. If the GPU's CUDA libraries are missing, the app falls back to `cpu`. |
+| `WHISPER_LANGUAGE_MODELS` | (empty) | Extra models for specific sung languages, as `lang=model`, comma-separated. Example: `hi=models\whisper-hindi-large-v2`. Used only when that language is picked as "Language being sung". |
 | `WHISPER_VAD` | `true` | Skip instrumental stretches with a speech detector, tuned loosely for singing. If lines or whole sections go missing, set `false`. You may then get a few made-up lines during long instrumentals. |
 | `TRANSLATOR` | `nllb` | `nllb` is Meta's open-source NLLB-200 model, offline, and good with Indian and other non-European languages (needs `requirements-models.txt`). `argos` is also offline and lighter: run `pip install argostranslate`, and language packs download on first use. `google` uses Google Translate's free web endpoint, which sends lyrics to Google. `none` turns translation off. |
 | `ISOLATE_VOCALS` | `true` | Run Demucs to separate the vocals before transcribing, when Demucs is installed. Set `false` to skip it for speed. |

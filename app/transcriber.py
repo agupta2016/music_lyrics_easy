@@ -141,6 +141,35 @@ def remove_overlaps(segments: list[Segment]) -> list[Segment]:
     return cleaned
 
 
+class LanguageRoutingTranscriber:
+    """Sends songs in some languages to a dedicated model, such as one fine-tuned on Hindi.
+
+    Routing only happens when the user picks the language being sung; with
+    "Detect automatically" the default model is used.
+    """
+
+    def __init__(self, default: Transcriber, by_language: dict[str, Transcriber]):
+        self.default = default
+        self.by_language = by_language
+
+    def transcribe(self, audio_path: Path, language: Optional[str] = None) -> Transcript:
+        model = self.by_language.get(language or "", self.default)
+        return model.transcribe(audio_path, language)
+
+
+def parse_language_models(value: str) -> dict[str, str]:
+    """'hi=models/whisper-hindi, ta=other' -> {'hi': 'models/whisper-hindi', 'ta': 'other'}"""
+    models: dict[str, str] = {}
+    for item in value.split(","):
+        if not item.strip():
+            continue
+        lang, sep, model = item.partition("=")
+        if not sep or not lang.strip() or not model.strip():
+            raise ValueError(f"WHISPER_LANGUAGE_MODELS entry {item.strip()!r} should look like hi=path/to/model")
+        models[lang.strip().lower()] = model.strip()
+    return models
+
+
 _GPU_ERROR_HINTS = ("cublas", "cudnn", "cuda", "libcu", "nvrtc", "gpu")
 
 
