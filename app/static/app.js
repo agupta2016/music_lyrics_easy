@@ -15,15 +15,19 @@ async function loadLanguages() {
   const res = await fetch("/api/languages");
   const languages = await res.json();
   const select = $("language");
+  const sung = $("sung-language");
   for (const [code, name] of Object.entries(languages)) {
     const opt = document.createElement("option");
     opt.value = code;
     opt.textContent = name;
     select.appendChild(opt);
+    if (code !== "original") sung.appendChild(opt.cloneNode(true));
   }
   try {
     const saved = localStorage.getItem("mle-language");
     if (saved && languages[saved]) select.value = saved;
+    const savedSung = localStorage.getItem("mle-sung-language");
+    if (savedSung && (savedSung === "auto" || languages[savedSung])) sung.value = savedSung;
   } catch (_) { /* storage unavailable */ }
 }
 
@@ -127,7 +131,11 @@ async function submit(event) {
   $("result").hidden = true;
 
   const language = $("language").value;
-  try { localStorage.setItem("mle-language", language); } catch (_) { /* ignore */ }
+  const sungLanguage = $("sung-language").value;
+  try {
+    localStorage.setItem("mle-language", language);
+    localStorage.setItem("mle-sung-language", sungLanguage);
+  } catch (_) { /* ignore */ }
 
   let res;
   if (mode === "link") {
@@ -136,7 +144,7 @@ async function submit(event) {
     res = await fetch("/api/jobs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url, target_language: language }),
+      body: JSON.stringify({ url, target_language: language, source_language: sungLanguage }),
     });
   } else {
     const file = $("file").files[0];
@@ -144,6 +152,7 @@ async function submit(event) {
     const form = new FormData();
     form.append("file", file);
     form.append("target_language", language);
+    form.append("source_language", sungLanguage);
     res = await fetch("/api/jobs/upload", { method: "POST", body: form });
   }
 

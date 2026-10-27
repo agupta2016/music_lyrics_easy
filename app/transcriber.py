@@ -8,7 +8,7 @@ import tempfile
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Optional, Protocol
 
 
 @dataclass
@@ -25,36 +25,157 @@ class Transcript:
 
 
 class Transcriber(Protocol):
-    def transcribe(self, audio_path: Path) -> Transcript: ...
+    def transcribe(self, audio_path: Path, language: Optional[str] = None) -> Transcript: ...
+
+
+# Silero VAD settings for singing: lower confidence bar, longer padding around
+# detected vocals, and only treat 3 s+ gaps as breaks between lines.
+SONG_VAD = {"threshold": 0.25, "min_silence_duration_ms": 3000, "speech_pad_ms": 800}
 
 
 class WhisperTranscriber:
-    """Loads the Whisper model once, on first use, and reuses it across jobs."""
+    """Loads the Whisper model once, on first use, and reuses it across jobs.
 
-    def __init__(self, model_size: str = "small", device: str = "auto"):
+    If the GPU is picked but its CUDA libraries are missing (common on Windows
+    machines with an NVIDIA card but no CUDA toolkit), it switches to the CPU.
+    """
+
+    def __init__(self, model_size: str = "auto", device: str = "auto", vad: bool = True):
         self.model_size = model_size
         self.device = device
+        self.vad = vad
         self._model = None
         self._lock = threading.Lock()
+
+    def model_for(self, device: str) -> str:
+        """'auto' means large-v2 on a GPU and medium on a CPU.
+
+        large-v2 rather than v3: v3 is more prone to dropping or hallucinating
+        lines over music, which matters more for songs than its gains on speech.
+        """
+        if self.model_size != "auto":
+            return self.model_size
+        from .gpu import cuda_available
+
+        on_gpu = device == "cuda" or (device == "auto" and cuda_available())
+        return "large-v2" if on_gpu else "medium"
+
+    def _load_model(self, device: str):
+        from faster_whisper import WhisperModel
+
+        from .gpu import register_nvidia_libraries
+
+        register_nvidia_libraries()
+        model = self.model_for(device)
+        log.info("Loading Whisper model %s on %s", model, device)
+        # int8 is the fast choice on CPU; "auto" picks the best type for the GPU.
+        compute_type = "int8" if device == "cpu" else "auto"
+        return WhisperModel(model, device=device, compute_type=compute_type)
 
     def _get_model(self):
         with self._lock:
             if self._model is None:
-                from faster_whisper import WhisperModel
-
-                self._model = WhisperModel(self.model_size, device=self.device, compute_type="auto")
+                try:
+                    self._model = self._load_model(self.device)
+                except Exception as exc:
+                    if not self._switch_to_cpu(exc):
+                        raise
+                    self._model = self._load_model("cpu")
             return self._model
 
-    def transcribe(self, audio_path: Path) -> Transcript:
+    def _switch_to_cpu(self, exc: Exception) -> bool:
+        """Fall back to the CPU for good if ``exc`` is a GPU library problem."""
+        if self.device == "cpu" or not _is_gpu_error(exc):
+            return False
+        log.warning("GPU unavailable (%s); running Whisper on the CPU instead.", exc)
+        self.device = "cpu"
+        self._model = None
+        return True
+
+    def _run(self, audio_path: Path, language: Optional[str]) -> Transcript:
         model = self._get_model()
-        # vad_filter skips long instrumental stretches, which otherwise produce hallucinated text.
-        segments, info = model.transcribe(str(audio_path), vad_filter=True, beam_size=5)
+        segments, info = model.transcribe(
+            str(audio_path),
+            language=language,
+            beam_size=5,
+            # Skips long instrumental stretches, which otherwise produce made-up text.
+            # The speech detector is tuned for talking, so loosen it or it drops sung lines.
+            vad_filter=self.vad,
+            vad_parameters=SONG_VAD if self.vad else None,
+            # Whisper rates sung lines over music as "probably not speech"; only skip
+            # a window when it is very sure.
+            no_speech_threshold=0.85,
+            # Feeding earlier lines back in makes Whisper repeat choruses and loop on songs.
+            condition_on_previous_text=False,
+        )
+        # Segments are generated lazily, so GPU errors surface while iterating.
         result = [
             Segment(start=round(s.start, 2), end=round(s.end, 2), text=s.text.strip())
             for s in segments
             if s.text.strip()
         ]
-        return Transcript(language=info.language, segments=result)
+        return Transcript(language=info.language, segments=remove_overlaps(result))
+
+    def transcribe(self, audio_path: Path, language: Optional[str] = None) -> Transcript:
+        try:
+            return self._run(audio_path, language)
+        except Exception as exc:
+            with self._lock:
+                if not self._switch_to_cpu(exc):
+                    raise
+            return self._run(audio_path, language)
+
+
+def remove_overlaps(segments: list[Segment]) -> list[Segment]:
+    """Drop lines that repeat the previous one at the same moment, and stop times running backwards."""
+    cleaned: list[Segment] = []
+    for seg in segments:
+        if cleaned:
+            prev = cleaned[-1]
+            if seg.text.lower() == prev.text.lower() and seg.start < prev.end:
+                prev.end = max(prev.end, seg.end)
+                continue
+            if seg.start < prev.end:
+                seg = Segment(prev.end, max(seg.end, prev.end), seg.text)
+        cleaned.append(seg)
+    return cleaned
+
+
+class LanguageRoutingTranscriber:
+    """Sends songs in some languages to a dedicated model, such as one fine-tuned on Hindi.
+
+    Routing only happens when the user picks the language being sung; with
+    "Detect automatically" the default model is used.
+    """
+
+    def __init__(self, default: Transcriber, by_language: dict[str, Transcriber]):
+        self.default = default
+        self.by_language = by_language
+
+    def transcribe(self, audio_path: Path, language: Optional[str] = None) -> Transcript:
+        model = self.by_language.get(language or "", self.default)
+        return model.transcribe(audio_path, language)
+
+
+def parse_language_models(value: str) -> dict[str, str]:
+    """'hi=models/whisper-hindi, ta=other' -> {'hi': 'models/whisper-hindi', 'ta': 'other'}"""
+    models: dict[str, str] = {}
+    for item in value.split(","):
+        if not item.strip():
+            continue
+        lang, sep, model = item.partition("=")
+        if not sep or not lang.strip() or not model.strip():
+            raise ValueError(f"WHISPER_LANGUAGE_MODELS entry {item.strip()!r} should look like hi=path/to/model")
+        models[lang.strip().lower()] = model.strip()
+    return models
+
+
+_GPU_ERROR_HINTS = ("cublas", "cudnn", "cuda", "libcu", "nvrtc", "gpu")
+
+
+def _is_gpu_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return any(hint in text for hint in _GPU_ERROR_HINTS)
 
 
 log = logging.getLogger(__name__)
@@ -91,14 +212,14 @@ class VocalIsolatingTranscriber:
             raise RuntimeError(f"Demucs did not produce {vocals}")
         return vocals
 
-    def transcribe(self, audio_path: Path) -> Transcript:
+    def transcribe(self, audio_path: Path, language: Optional[str] = None) -> Transcript:
         out_dir = Path(tempfile.mkdtemp(prefix="demucs-", dir=audio_path.parent))
         try:
             try:
                 vocals = self.isolate(audio_path, out_dir)
             except Exception as exc:
                 log.warning("Vocal isolation failed, using the full mix: %s", exc)
-                return self.inner.transcribe(audio_path)
-            return self.inner.transcribe(vocals)
+                return self.inner.transcribe(audio_path, language)
+            return self.inner.transcribe(vocals, language)
         finally:
             shutil.rmtree(out_dir, ignore_errors=True)
