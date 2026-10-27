@@ -10,13 +10,14 @@
   <main>
     <header>
       <h1>MusicLyricsEasy</h1>
-      <p class="tagline">Paste a link to a song or video, pick a language, and get the lyrics.</p>
+      <p class="tagline">Paste a link to a song or video, pick a language, and get the lyrics. Or just download the video.</p>
     </header>
 
     <form id="job-form">
       <div class="tabs" role="tablist">
         <button type="button" class="tab active" data-mode="link" role="tab" aria-selected="true">Link</button>
         <button type="button" class="tab" data-mode="file" role="tab" aria-selected="false">Upload file</button>
+        <button type="button" class="tab" data-mode="video" role="tab" aria-selected="false">Download video</button>
       </div>
 
       <label id="link-field">
@@ -29,14 +30,25 @@
         <input type="file" id="file" accept="audio/*,video/*">
       </label>
 
-      <label>
+      <label id="quality-field" hidden>
+        <span>Video quality</span>
+        <select id="quality">
+          <option value="best">Best available</option>
+          <option value="1080">Up to 1080p</option>
+          <option value="720">Up to 720p</option>
+          <option value="480">Up to 480p</option>
+          <option value="360">Up to 360p</option>
+        </select>
+      </label>
+
+      <label class="lyrics-field">
         <span>Language being sung</span>
         <select id="sung-language">
           <option value="auto">Detect automatically</option>
         </select>
       </label>
 
-      <label>
+      <label class="lyrics-field">
         <span>Lyrics language</span>
         <select id="language"></select>
       </label>
@@ -50,6 +62,13 @@
     </section>
 
     <section id="error" class="error" hidden></section>
+
+    <section id="video-result" class="card" hidden>
+      <h2 id="video-title"></h2>
+      <p id="video-meta" class="meta"></p>
+      <a id="video-save" class="button primary" href="#" download>Save video</a>
+      <p class="meta">The file is kept on the server for a while, then deleted.</p>
+    </section>
 
     <section id="result" hidden>
       <div class="result-head">
@@ -68,7 +87,7 @@
 
     <footer>
       Transcriptions are generated automatically and may contain mistakes.
-      Only process audio you have the right to use.
+      Only process or download media you have the right to use.
     </footer>
   </main>
   <script src="/static/app.js"></script>

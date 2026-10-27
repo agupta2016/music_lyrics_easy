@@ -40,7 +40,7 @@ h1 { margin: 0; font-size: 2rem; }
 .tagline, .meta, footer { color: var(--muted); }
 .tagline { margin-top: 4px; }
 
-form, #result, #status, .error {
+form, #result, #status, .error, .card {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -110,3 +110,13 @@ button {
 #lines .empty { color: var(--muted); }
 
 footer { margin-top: 32px; font-size: 0.85rem; text-align: center; }
+
+.button {
+  display: inline-block;
+  text-decoration: none;
+  border-radius: 8px;
+  padding: 12px 20px;
+  font-weight: 600;
+}
+.button.primary { background: var(--accent); color: var(--accent-text); }
+#video-result h2 { margin: 0; word-break: break-word; }

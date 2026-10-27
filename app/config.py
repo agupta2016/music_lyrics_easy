@@ -41,6 +41,10 @@ class Settings:
     block_private_urls: bool = field(
         default_factory=lambda: _env_bool("BLOCK_PRIVATE_URLS", True)
     )
+    # How long a downloaded video stays available to save before it's deleted, in minutes.
+    video_keep_minutes: int = field(
+        default_factory=lambda: int(os.getenv("VIDEO_KEEP_MINUTES", "60"))
+    )
     # Where downloaded and uploaded audio is kept while a job runs.
     work_dir: Path = field(
         default_factory=lambda: Path(os.getenv("WORK_DIR", "data/work")).resolve()

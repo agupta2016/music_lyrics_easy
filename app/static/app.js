@@ -7,6 +7,8 @@ const STATUS_TEXT = {
   translating: "Translating…",
 };
 
+const SUBMIT_TEXT = { link: "Get lyrics", file: "Get lyrics", video: "Download video" };
+
 let mode = "link";
 let currentJob = null;
 let pollTimer = null;
@@ -38,8 +40,11 @@ function setMode(next) {
     tab.classList.toggle("active", active);
     tab.setAttribute("aria-selected", String(active));
   });
-  $("link-field").hidden = next !== "link";
+  $("link-field").hidden = next === "file";
   $("file-field").hidden = next !== "file";
+  $("quality-field").hidden = next !== "video";
+  document.querySelectorAll(".lyrics-field").forEach((el) => (el.hidden = next === "video"));
+  $("submit").textContent = SUBMIT_TEXT[next];
 }
 
 function showError(message) {
@@ -49,8 +54,8 @@ function showError(message) {
   $("submit").disabled = false;
 }
 
-function showStatus(status) {
-  $("status-text").textContent = STATUS_TEXT[status] || status;
+function showStatus(status, text) {
+  $("status-text").textContent = text || STATUS_TEXT[status] || status;
   $("status").hidden = false;
 }
 
@@ -124,11 +129,62 @@ async function poll(jobId) {
   }
 }
 
+function formatSize(bytes) {
+  if (!bytes) return "";
+  const mb = bytes / (1024 * 1024);
+  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb.toFixed(1)} MB`;
+}
+
+function renderVideo(item) {
+  $("video-title").textContent = item.title || "Video";
+  $("video-meta").textContent = [item.filename, formatSize(item.size_bytes)].filter(Boolean).join(" · ");
+  $("video-save").href = `/api/videos/${item.id}/file`;
+  $("video-result").hidden = false;
+}
+
+async function pollVideo(id) {
+  try {
+    const res = await fetch(`/api/videos/${id}`);
+    const item = await res.json();
+    if (!res.ok) return showError(item.detail || "Something went wrong.");
+    if (item.status === "done") {
+      $("status").hidden = true;
+      $("submit").disabled = false;
+      renderVideo(item);
+    } else if (item.status === "error") {
+      showError(item.error || "Something went wrong.");
+    } else {
+      const pct = item.progress == null ? "" : ` ${Math.floor(item.progress)}%`;
+      showStatus(item.status, item.status === "queued" ? null : `Downloading the video…${pct}`);
+      pollTimer = setTimeout(() => pollVideo(id), 1000);
+    }
+  } catch (err) {
+    showError(`Lost contact with the server: ${err.message}`);
+  }
+}
+
+async function submitVideo() {
+  const url = $("url").value.trim();
+  if (!url) return showError("Paste a link first.");
+  const res = await fetch("/api/videos", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url, quality: $("quality").value }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) return showError(body.detail || `Request failed (${res.status}).`);
+  $("submit").disabled = true;
+  showStatus(body.status);
+  pollVideo(body.id);
+}
+
 async function submit(event) {
   event.preventDefault();
   clearTimeout(pollTimer);
   $("error").hidden = true;
   $("result").hidden = true;
+  $("video-result").hidden = true;
+  if (mode === "video") return submitVideo();
 
   const language = $("language").value;
   const sungLanguage = $("sung-language").value;

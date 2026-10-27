@@ -72,6 +72,7 @@ def client(tmp_path, fakes):
     with TestClient(app) as c:
         yield c
     app.state.jobs.shutdown()
+    app.state.videos.shutdown()
 
 
 def wait_for_job(client: TestClient, job_id: str, timeout: float = 5.0) -> dict:
