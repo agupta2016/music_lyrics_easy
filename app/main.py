@@ -194,6 +194,15 @@ def create_app(
         return FileResponse(STATIC_DIR / "index.html")
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+    @app.middleware("http")
+    async def revalidate_ui(request, call_next):
+        # Make browsers check for a newer page and script after each update,
+        # instead of running an old copy against a newer server.
+        response = await call_next(request)
+        if request.url.path == "/" or request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
     return app
 
 

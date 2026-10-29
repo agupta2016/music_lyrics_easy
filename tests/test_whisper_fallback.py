@@ -106,4 +106,22 @@ def test_transcript_reports_what_ran(tmp_path):
         "audio_seconds": 240.0,
         "heard_seconds": 200.0,
         "last_line_ends": 1.0,
+        "hint": None,
     }
+
+
+def test_hint_is_sent_as_hotwords(tmp_path):
+    calls = []
+
+    class Recording(FakeModel):
+        def transcribe(self, path, **kwargs):
+            calls.append(kwargs)
+            return super().transcribe(path, **kwargs)
+
+    whisper = FakeWhisper("cpu")
+    whisper._load_model = lambda device: Recording(device)
+
+    transcript = whisper.transcribe(tmp_path / "song.mp3", "hi", "करूं नित नित तेरा ध्यान")
+
+    assert calls[0]["hotwords"] == "करूं नित नित तेरा ध्यान"
+    assert transcript.diagnostics["hint"] == "करूं नित नित तेरा ध्यान"
