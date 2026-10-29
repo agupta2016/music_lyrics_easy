@@ -124,6 +124,7 @@ class WhisperTranscriber:
             for s in segments
             if s.text.strip()
         ]
+        cleaned = drop_garbled(result)
         diagnostics = {
             "model": self.model_for(self.device),
             "device": self.device,
@@ -132,9 +133,10 @@ class WhisperTranscriber:
             "heard_seconds": round(getattr(info, "duration_after_vad", None) or info.duration, 1),
             "last_line_ends": result[-1].end if result else 0.0,
             "hint": hint,
+            "dropped_lines": len(result) - len(cleaned),
         }
         return Transcript(
-            language=info.language, segments=remove_overlaps(result), diagnostics=diagnostics
+            language=info.language, segments=remove_overlaps(cleaned), diagnostics=diagnostics
         )
 
     def transcribe(
@@ -205,6 +207,55 @@ def remove_overlaps(segments: list[Segment]) -> list[Segment]:
                 seg = Segment(prev.end, max(seg.end, prev.end), seg.text)
         cleaned.append(seg)
     return cleaned
+
+
+def _script(char: str) -> str:
+    """The writing system of a letter, e.g. "DEVANAGARI", "LATIN" or "CYRILLIC"."""
+    return unicodedata.name(char, "?").split(" ")[0]
+
+
+def _is_chant(text: str) -> bool:
+    """Lines like "Ha-ha-ha-ha-ha-ha" that Whisper invents over humming or instruments."""
+    words = re.findall(r"\w+", text.lower())
+    return len(words) >= 5 and len(set(words)) <= 2
+
+
+def drop_garbled(segments: list[Segment]) -> list[Segment]:
+    """Drop lines Whisper made up over music in a song sung in a non-Latin script.
+
+    Over instrumental breaks Whisper tends to produce mixed-script gibberish such as
+    "कि ज которого बम ऐसे स्व schedश" or "Ha-ha-ha-ha". A real line of a Hindi song is
+    mostly Devanagari, so lines that stray into a third script, or are mostly in
+    another script, are dropped. Songs mostly in Latin script are left alone.
+    """
+    counts: dict[str, int] = {}
+    for seg in segments:
+        for c in seg.text:
+            if c.isalpha():
+                counts[_script(c)] = counts.get(_script(c), 0) + 1
+    if not counts:
+        return segments
+    main = max(counts, key=counts.get)
+    if main == "LATIN":
+        return segments
+    kept = []
+    for seg in segments:
+        scripts = [_script(c) for c in seg.text if c.isalpha()]
+        foreign = [s for s in scripts if s not in (main, "LATIN")]
+        # A word that switches script mid-way, like "schedश", is never a real word.
+        mixed = any(
+            len({_script(c) for c in word if unicodedata.category(c)[0] in "LM"}) > 1
+            for word in seg.text.split()
+        )
+        if (
+            _is_chant(seg.text)
+            or foreign
+            or mixed
+            or scripts.count(main) < len(scripts) / 2
+        ):
+            continue
+        kept.append(seg)
+    return kept
 
 
 class LanguageRoutingTranscriber:
