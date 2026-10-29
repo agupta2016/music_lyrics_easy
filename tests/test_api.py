@@ -167,9 +167,9 @@ def test_video_title_is_passed_to_whisper_as_a_hint(client, fakes, monkeypatch):
     seen = []
     original = transcriber.transcribe
 
-    def recording(audio_path, language=None, hint=None):
+    def recording(audio_path, language=None, hint=None, on_progress=None):
         seen.append(hint)
-        return original(audio_path, language, hint)
+        return original(audio_path, language, hint, on_progress)
 
     transcriber.transcribe = recording
 

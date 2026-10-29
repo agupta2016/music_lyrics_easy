@@ -30,6 +30,8 @@ class Job:
     # The language being sung, or None to let Whisper detect it.
     source_language: Optional[str] = None
     status: str = "queued"  # queued, downloading, transcribing, translating, done, error
+    # A short note on how far the current step has got, e.g. "1:23 of 4:10 written".
+    progress: Optional[str] = None
     title: Optional[str] = None
     detected_language: Optional[str] = None
     lines: list[Line] = field(default_factory=list)
@@ -90,7 +92,13 @@ class JobManager:
 
             job.status = "transcribing"
             language = base_code(job.source_language) if job.source_language else None
-            transcript = self.transcriber.transcribe(audio, language, title_hint(job.title, language))
+            def on_progress(note: str) -> None:
+                job.progress = note
+
+            transcript = self.transcriber.transcribe(
+                audio, language, title_hint(job.title, language), on_progress
+            )
+            job.progress = None
             job.detected_language = transcript.language
             job.diagnostics = dict(transcript.diagnostics)
             lines = [Line(s.start, s.end, s.text) for s in transcript.segments]

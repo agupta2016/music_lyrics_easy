@@ -35,6 +35,8 @@ from .videos import VideoDownload, VideoDownloadManager
 
 STATIC_DIR = Path(__file__).parent / "static"
 log = logging.getLogger(__name__)
+# Uvicorn only sets up its own loggers; without this the app's progress messages are hidden.
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 
 class LinkRequest(BaseModel):

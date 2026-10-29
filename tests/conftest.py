@@ -35,7 +35,7 @@ class FakeTranscriber:
         self.seen: list[Path] = []
         self.languages: list = []
 
-    def transcribe(self, audio_path: Path, language=None, hint=None) -> Transcript:
+    def transcribe(self, audio_path: Path, language=None, hint=None, on_progress=None) -> Transcript:
         assert audio_path.exists(), "audio should exist while transcribing"
         self.seen.append(audio_path)
         self.languages.append(language)

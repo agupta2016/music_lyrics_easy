@@ -10,7 +10,7 @@ import tempfile
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Protocol
+from typing import Callable, Optional, Protocol
 
 
 @dataclass
@@ -29,9 +29,25 @@ class Transcript:
     diagnostics: dict = field(default_factory=dict)
 
 
+# Called with a short note on what is happening, such as "1:23 of 4:10 written".
+Progress = Callable[[str], None]
+
+
+def _ignore(note: str) -> None:
+    pass
+
+
+def _clock(seconds: float) -> str:
+    return f"{int(seconds // 60)}:{int(seconds % 60):02d}"
+
+
 class Transcriber(Protocol):
     def transcribe(
-        self, audio_path: Path, language: Optional[str] = None, hint: Optional[str] = None
+        self,
+        audio_path: Path,
+        language: Optional[str] = None,
+        hint: Optional[str] = None,
+        on_progress: Progress = _ignore,
     ) -> Transcript: ...
 
 
@@ -99,8 +115,13 @@ class WhisperTranscriber:
         self._model = None
         return True
 
-    def _run(self, audio_path: Path, language: Optional[str], hint: Optional[str]) -> Transcript:
+    def _run(
+        self, audio_path: Path, language: Optional[str], hint: Optional[str], on_progress: Progress
+    ) -> Transcript:
+        if self._model is None:
+            on_progress(f"loading the {self.model_for(self.device)} model")
         model = self._get_model()
+        on_progress(f"starting on {self.device}")
         segments, info = model.transcribe(
             str(audio_path),
             language=language,
@@ -119,11 +140,16 @@ class WhisperTranscriber:
             hotwords=hint,
         )
         # Segments are generated lazily, so GPU errors surface while iterating.
-        result = [
-            Segment(start=round(s.start, 2), end=round(s.end, 2), text=s.text.strip())
-            for s in segments
-            if s.text.strip()
-        ]
+        result = []
+        total = _clock(info.duration)
+        logged = 0.0
+        for s in segments:
+            on_progress(f"{_clock(s.end)} of {total} written")
+            if s.end - logged >= 30:
+                logged = s.end
+                log.info("Transcribed %s of %s", _clock(s.end), total)
+            if s.text.strip():
+                result.append(Segment(start=round(s.start, 2), end=round(s.end, 2), text=s.text.strip()))
         cleaned = drop_garbled(result)
         diagnostics = {
             "model": self.model_for(self.device),
@@ -140,15 +166,20 @@ class WhisperTranscriber:
         )
 
     def transcribe(
-        self, audio_path: Path, language: Optional[str] = None, hint: Optional[str] = None
+        self,
+        audio_path: Path,
+        language: Optional[str] = None,
+        hint: Optional[str] = None,
+        on_progress: Progress = _ignore,
     ) -> Transcript:
         try:
-            return self._run(audio_path, language, hint)
+            return self._run(audio_path, language, hint, on_progress)
         except Exception as exc:
             with self._lock:
                 if not self._switch_to_cpu(exc):
                     raise
-            return self._run(audio_path, language, hint)
+            on_progress("GPU failed, restarting on the CPU (much slower)")
+            return self._run(audio_path, language, hint, on_progress)
 
 
 _NOISE_WORDS = re.compile(
@@ -270,10 +301,14 @@ class LanguageRoutingTranscriber:
         self.by_language = by_language
 
     def transcribe(
-        self, audio_path: Path, language: Optional[str] = None, hint: Optional[str] = None
+        self,
+        audio_path: Path,
+        language: Optional[str] = None,
+        hint: Optional[str] = None,
+        on_progress: Progress = _ignore,
     ) -> Transcript:
         model = self.by_language.get(language or "", self.default)
-        return model.transcribe(audio_path, language, hint)
+        return model.transcribe(audio_path, language, hint, on_progress)
 
 
 def parse_language_models(value: str) -> dict[str, str]:
@@ -332,18 +367,24 @@ class VocalIsolatingTranscriber:
         return vocals
 
     def transcribe(
-        self, audio_path: Path, language: Optional[str] = None, hint: Optional[str] = None
+        self,
+        audio_path: Path,
+        language: Optional[str] = None,
+        hint: Optional[str] = None,
+        on_progress: Progress = _ignore,
     ) -> Transcript:
         out_dir = Path(tempfile.mkdtemp(prefix="demucs-", dir=audio_path.parent))
         try:
             try:
+                on_progress("separating the vocals from the music")
+                log.info("Separating vocals with Demucs")
                 vocals = self.isolate(audio_path, out_dir)
             except Exception as exc:
                 log.warning("Vocal isolation failed, using the full mix: %s", exc)
-                transcript = self.inner.transcribe(audio_path, language, hint)
+                transcript = self.inner.transcribe(audio_path, language, hint, on_progress)
                 transcript.diagnostics["vocals_isolated"] = False
                 return transcript
-            transcript = self.inner.transcribe(vocals, language, hint)
+            transcript = self.inner.transcribe(vocals, language, hint, on_progress)
             transcript.diagnostics["vocals_isolated"] = True
             return transcript
         finally:
