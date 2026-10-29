@@ -6,7 +6,7 @@ import subprocess
 import sys
 import tempfile
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Protocol
 
@@ -22,6 +22,9 @@ class Segment:
 class Transcript:
     language: str
     segments: list[Segment]
+    # What actually ran, shown under the lyrics so problems can be traced:
+    # model, device, audio_seconds, heard_seconds, vocals_isolated.
+    diagnostics: dict = field(default_factory=dict)
 
 
 class Transcriber(Protocol):
@@ -114,7 +117,17 @@ class WhisperTranscriber:
             for s in segments
             if s.text.strip()
         ]
-        return Transcript(language=info.language, segments=remove_overlaps(result))
+        diagnostics = {
+            "model": self.model_for(self.device),
+            "device": self.device,
+            "audio_seconds": round(info.duration, 1),
+            # With the speech detector on, only these seconds reach Whisper.
+            "heard_seconds": round(getattr(info, "duration_after_vad", None) or info.duration, 1),
+            "last_line_ends": result[-1].end if result else 0.0,
+        }
+        return Transcript(
+            language=info.language, segments=remove_overlaps(result), diagnostics=diagnostics
+        )
 
     def transcribe(self, audio_path: Path, language: Optional[str] = None) -> Transcript:
         try:
@@ -219,7 +232,11 @@ class VocalIsolatingTranscriber:
                 vocals = self.isolate(audio_path, out_dir)
             except Exception as exc:
                 log.warning("Vocal isolation failed, using the full mix: %s", exc)
-                return self.inner.transcribe(audio_path, language)
-            return self.inner.transcribe(vocals, language)
+                transcript = self.inner.transcribe(audio_path, language)
+                transcript.diagnostics["vocals_isolated"] = False
+                return transcript
+            transcript = self.inner.transcribe(vocals, language)
+            transcript.diagnostics["vocals_isolated"] = True
+            return transcript
         finally:
             shutil.rmtree(out_dir, ignore_errors=True)

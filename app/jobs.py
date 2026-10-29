@@ -34,6 +34,7 @@ class Job:
     detected_language: Optional[str] = None
     lines: list[Line] = field(default_factory=list)
     error: Optional[str] = None
+    diagnostics: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -91,6 +92,7 @@ class JobManager:
             language = base_code(job.source_language) if job.source_language else None
             transcript = self.transcriber.transcribe(audio, language)
             job.detected_language = transcript.language
+            job.diagnostics = dict(transcript.diagnostics)
             lines = [Line(s.start, s.end, s.text) for s in transcript.segments]
 
             target = job.target_language

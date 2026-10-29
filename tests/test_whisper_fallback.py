@@ -17,7 +17,7 @@ class FakeModel:
                 raise self.fail_with
             yield SimpleNamespace(start=0.0, end=1.0, text=" hello ")
 
-        return segments(), SimpleNamespace(language="en")
+        return segments(), SimpleNamespace(language="en", duration=240.0, duration_after_vad=200.0)
 
 
 class FakeWhisper(WhisperTranscriber):
@@ -95,3 +95,15 @@ def test_whisper_is_told_not_to_reuse_earlier_lines(tmp_path):
     whisper.vad = False
     whisper.transcribe(tmp_path / "song.mp3")
     assert calls[0]["vad_filter"] is False and calls[0]["vad_parameters"] is None
+
+
+def test_transcript_reports_what_ran(tmp_path):
+    whisper = FakeWhisper("cpu")
+    d = whisper.transcribe(tmp_path / "song.mp3").diagnostics
+    assert d == {
+        "model": "tiny",
+        "device": "cpu",
+        "audio_seconds": 240.0,
+        "heard_seconds": 200.0,
+        "last_line_ends": 1.0,
+    }
