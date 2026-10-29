@@ -10,7 +10,7 @@ from typing import Callable, Optional
 
 from .downloader import DownloadError
 from .languages import base_code
-from .transcriber import Transcriber
+from .transcriber import Transcriber, title_hint
 from .translator import TranslationError, Translator
 
 
@@ -90,7 +90,7 @@ class JobManager:
 
             job.status = "transcribing"
             language = base_code(job.source_language) if job.source_language else None
-            transcript = self.transcriber.transcribe(audio, language)
+            transcript = self.transcriber.transcribe(audio, language, title_hint(job.title, language))
             job.detected_language = transcript.language
             job.diagnostics = dict(transcript.diagnostics)
             lines = [Line(s.start, s.end, s.text) for s in transcript.segments]

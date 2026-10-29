@@ -81,6 +81,7 @@ function describeDiagnostics(d) {
     parts.push(`heard ${formatTime(d.heard_seconds)} of ${formatTime(d.audio_seconds)}`);
     parts.push(`last line at ${formatTime(d.last_line_ends)}`);
   }
+  if (d.hint) parts.push(`title hint: "${d.hint}"`);
   return parts.join(" · ");
 }
 

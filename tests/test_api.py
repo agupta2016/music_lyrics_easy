@@ -160,3 +160,33 @@ def test_rejects_unknown_sung_language(client):
             json={"url": "https://example.com/a", "target_language": "en", "source_language": bad},
         )
         assert res.status_code == 400
+
+
+def test_video_title_is_passed_to_whisper_as_a_hint(client, fakes, monkeypatch):
+    transcriber, _ = fakes
+    seen = []
+    original = transcriber.transcribe
+
+    def recording(audio_path, language=None, hint=None):
+        seen.append(hint)
+        return original(audio_path, language, hint)
+
+    transcriber.transcribe = recording
+
+    def fake_download(url, dest_dir, max_duration_seconds):
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        return make_tone_wav(dest_dir / "audio.wav"), "करूं नित नित तेरा ध्यान | Prayer | #Bhajan"
+
+    monkeypatch.setattr(main_module, "download_audio", fake_download)
+    res = client.post(
+        "/api/jobs",
+        json={"url": "https://example.com/v", "target_language": "original", "source_language": "hi"},
+    )
+    assert wait_for_job(client, res.json()["id"])["status"] == "done"
+    assert seen == ["करूं नित नित तेरा ध्यान"]
+
+
+def test_ui_is_revalidated_after_updates(client):
+    assert client.get("/").headers["cache-control"] == "no-cache"
+    assert client.get("/static/app.js").headers["cache-control"] == "no-cache"
+    assert "cache-control" not in client.get("/api/languages").headers

@@ -1,6 +1,8 @@
 """Speech-to-text with Whisper (via faster-whisper, runs locally)."""
 
 import logging
+import re
+import unicodedata
 import shutil
 import subprocess
 import sys
@@ -28,7 +30,9 @@ class Transcript:
 
 
 class Transcriber(Protocol):
-    def transcribe(self, audio_path: Path, language: Optional[str] = None) -> Transcript: ...
+    def transcribe(
+        self, audio_path: Path, language: Optional[str] = None, hint: Optional[str] = None
+    ) -> Transcript: ...
 
 
 # Silero VAD settings for singing: lower confidence bar, longer padding around
@@ -95,7 +99,7 @@ class WhisperTranscriber:
         self._model = None
         return True
 
-    def _run(self, audio_path: Path, language: Optional[str]) -> Transcript:
+    def _run(self, audio_path: Path, language: Optional[str], hint: Optional[str]) -> Transcript:
         model = self._get_model()
         segments, info = model.transcribe(
             str(audio_path),
@@ -110,6 +114,9 @@ class WhisperTranscriber:
             no_speech_threshold=0.85,
             # Feeding earlier lines back in makes Whisper repeat choruses and loop on songs.
             condition_on_previous_text=False,
+            # Words the song is likely to contain (from its title). Unlike initial_prompt,
+            # faster-whisper feeds hotwords to every 30 s window, so it steers spelling throughout.
+            hotwords=hint,
         )
         # Segments are generated lazily, so GPU errors surface while iterating.
         result = [
@@ -124,19 +131,65 @@ class WhisperTranscriber:
             # With the speech detector on, only these seconds reach Whisper.
             "heard_seconds": round(getattr(info, "duration_after_vad", None) or info.duration, 1),
             "last_line_ends": result[-1].end if result else 0.0,
+            "hint": hint,
         }
         return Transcript(
             language=info.language, segments=remove_overlaps(result), diagnostics=diagnostics
         )
 
-    def transcribe(self, audio_path: Path, language: Optional[str] = None) -> Transcript:
+    def transcribe(
+        self, audio_path: Path, language: Optional[str] = None, hint: Optional[str] = None
+    ) -> Transcript:
         try:
-            return self._run(audio_path, language)
+            return self._run(audio_path, language, hint)
         except Exception as exc:
             with self._lock:
                 if not self._switch_to_cpu(exc):
                     raise
-            return self._run(audio_path, language)
+            return self._run(audio_path, language, hint)
+
+
+_NOISE_WORDS = re.compile(
+    r"\b(official|video|audio|lyrics?|lyrical|full song|song|hd|4k|music|shorts?|status)\b",
+    re.IGNORECASE,
+)
+
+
+# Sung languages normally written in a non-Latin script.
+_NON_LATIN_LANGUAGES = {
+    "ar", "bn", "el", "fa", "gu", "he", "hi", "ja", "kn", "ko", "ml", "mr", "pa",
+    "ru", "ta", "te", "th", "uk", "ur", "zh",
+}
+
+
+def _non_latin_letter(char: str) -> bool:
+    return char.isalpha() and not unicodedata.name(char, "").startswith("LATIN")
+
+
+def title_hint(title: Optional[str], language: Optional[str] = None) -> Optional[str]:
+    """Turn a video title or file name into words to prime Whisper with.
+
+    'करूं नित नित तेरा ध्यान | Disciple's Prayer | #Bhajan' -> 'करूं नित नित तेरा ध्यान'
+    For songs in a non-Latin script, only the parts of the title in that script are
+    kept, so English descriptions don't pull Whisper towards English.
+    """
+    if not title:
+        return None
+    text = re.sub(r"#\S+", " ", title)
+    text = re.sub(r"[\(\[\{].*?[\)\]\}]", " ", text)
+    text = re.sub(r"\.(mp3|m4a|wav|mp4|webm|ogg|flac|aac|opus)$", "", text, flags=re.IGNORECASE)
+    parts = [p.strip() for p in re.split(r"[|/:\-–—,]+", text) if p.strip()]
+    if language and language != "en":
+        native = [p for p in parts if any(_non_latin_letter(c) for c in p)]
+        # A title only in English letters (e.g. "Tum Hi Ho") would nudge Whisper
+        # into writing a Hindi song in English letters, so give no hint then.
+        if not native and language in _NON_LATIN_LANGUAGES:
+            return None
+        if native:
+            parts = native
+    hint = " ".join(_NOISE_WORDS.sub(" ", p) for p in parts)
+    hint = re.sub(r"\s+", " ", hint).strip()
+    return hint[:120] or None
 
 
 def remove_overlaps(segments: list[Segment]) -> list[Segment]:
@@ -165,9 +218,11 @@ class LanguageRoutingTranscriber:
         self.default = default
         self.by_language = by_language
 
-    def transcribe(self, audio_path: Path, language: Optional[str] = None) -> Transcript:
+    def transcribe(
+        self, audio_path: Path, language: Optional[str] = None, hint: Optional[str] = None
+    ) -> Transcript:
         model = self.by_language.get(language or "", self.default)
-        return model.transcribe(audio_path, language)
+        return model.transcribe(audio_path, language, hint)
 
 
 def parse_language_models(value: str) -> dict[str, str]:
@@ -225,17 +280,19 @@ class VocalIsolatingTranscriber:
             raise RuntimeError(f"Demucs did not produce {vocals}")
         return vocals
 
-    def transcribe(self, audio_path: Path, language: Optional[str] = None) -> Transcript:
+    def transcribe(
+        self, audio_path: Path, language: Optional[str] = None, hint: Optional[str] = None
+    ) -> Transcript:
         out_dir = Path(tempfile.mkdtemp(prefix="demucs-", dir=audio_path.parent))
         try:
             try:
                 vocals = self.isolate(audio_path, out_dir)
             except Exception as exc:
                 log.warning("Vocal isolation failed, using the full mix: %s", exc)
-                transcript = self.inner.transcribe(audio_path, language)
+                transcript = self.inner.transcribe(audio_path, language, hint)
                 transcript.diagnostics["vocals_isolated"] = False
                 return transcript
-            transcript = self.inner.transcribe(vocals, language)
+            transcript = self.inner.transcribe(vocals, language, hint)
             transcript.diagnostics["vocals_isolated"] = True
             return transcript
         finally:
