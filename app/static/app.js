@@ -140,7 +140,8 @@ async function poll(jobId) {
     } else if (job.status === "error") {
       showError(job.error || "Something went wrong.");
     } else {
-      showStatus(job.status);
+      const text = STATUS_TEXT[job.status] || job.status;
+      showStatus(job.status, job.progress ? `${text} (${job.progress})` : text);
       pollTimer = setTimeout(() => poll(jobId), 1500);
     }
   } catch (err) {

@@ -1,3 +1,4 @@
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -126,3 +127,12 @@ def test_hint_is_sent_as_hotwords(tmp_path):
 
     assert calls[0]["hotwords"] == "करूं नित नित तेरा ध्यान"
     assert transcript.diagnostics["hint"] == "करूं नित नित तेरा ध्यान"
+
+
+def test_progress_is_reported_while_transcribing():
+    whisper = FakeWhisper("cpu")
+    whisper._load_model = lambda device: FakeModel(device)
+    notes = []
+    whisper.transcribe(Path("song.wav"), on_progress=notes.append)
+    assert notes[0] == "loading the tiny model"
+    assert notes[-1] == "0:01 of 4:00 written"
