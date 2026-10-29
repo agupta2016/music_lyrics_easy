@@ -69,11 +69,28 @@ function hasTranslation(job) {
   return job.lines.some((l) => l.translation);
 }
 
+function describeDiagnostics(d) {
+  if (!d || !d.model) return "";
+  const parts = [`Model ${d.model} on ${d.device}`];
+  if (d.vocals_isolated !== undefined) {
+    parts.push(d.vocals_isolated ? "vocals separated" : "vocals NOT separated (music mixed in)");
+  } else {
+    parts.push("vocals NOT separated (Demucs not running)");
+  }
+  if (d.audio_seconds) {
+    parts.push(`heard ${formatTime(d.heard_seconds)} of ${formatTime(d.audio_seconds)}`);
+    parts.push(`last line at ${formatTime(d.last_line_ends)}`);
+  }
+  return parts.join(" · ");
+}
+
 function renderResult(job) {
   currentJob = job;
   $("result-title").textContent = job.title || "Lyrics";
   const detected = job.detected_language ? `Detected language: ${job.detected_language}` : "";
-  $("result-meta").textContent = detected;
+  $("result-meta").textContent = [detected, describeDiagnostics(job.diagnostics)]
+    .filter(Boolean)
+    .join(" · ");
   $("show-original").parentElement.hidden = !hasTranslation(job);
 
   const list = $("lines");

@@ -15,7 +15,7 @@ def test_transcribes_isolated_vocals_and_cleans_up(tmp_path):
         return make_tone_wav(out_dir / "vocals.wav")
 
     wrapper.isolate = fake_isolate
-    wrapper.transcribe(song)
+    assert wrapper.transcribe(song).diagnostics["vocals_isolated"] is True
 
     assert inner.seen[0].name == "vocals.wav"
     assert sorted(p.name for p in tmp_path.iterdir()) == ["song.wav"]
@@ -34,6 +34,7 @@ def test_falls_back_to_full_mix_when_demucs_fails(tmp_path):
 
     assert inner.seen == [song]
     assert transcript.segments
+    assert transcript.diagnostics["vocals_isolated"] is False
 
 
 def _default_transcriber(monkeypatch, tmp_path, demucs: bool, isolate: bool):
