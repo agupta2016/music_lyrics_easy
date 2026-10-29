@@ -107,6 +107,7 @@ def test_transcript_reports_what_ran(tmp_path):
         "heard_seconds": 200.0,
         "last_line_ends": 1.0,
         "hint": None,
+        "dropped_lines": 0,
     }
 
 
